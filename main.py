@@ -1,17 +1,21 @@
 import os
-import csv
-import io
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, UploadFile, File
+import bcrypt
+from fastapi import FastAPI, Query, UploadFile, File, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from itsdangerous import URLSafeSerializer
 from pydantic import BaseModel
-from sqlalchemy import func, extract
+from sqlalchemy import func
 
-from models import SessionLocal, Record, Category, init_db
+from models import SessionLocal, User, Record, Category, init_db
 from ai import classify
 from bill_parser import parse_alipay_csv, parse_wechat_csv
+
+SECRET_KEY = "bookkeeper-secret-key-2026"
+COOKIE_NAME = "session"
+serializer = URLSafeSerializer(SECRET_KEY)
 
 
 @asynccontextmanager
@@ -24,7 +28,39 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+# --- Auth helpers ---
+
+def get_current_user(request: Request):
+    """从 Cookie 解析当前用户，返回 User 或 None"""
+    cookie = request.cookies.get(COOKIE_NAME)
+    if not cookie:
+        return None
+    try:
+        user_id = serializer.loads(cookie)
+    except Exception:
+        return None
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    db.close()
+    return user
+
+
+def require_user(request: Request):
+    """要求登录，未登录返回 None（由路由返回 401）"""
+    return get_current_user(request)
+
+
+def set_session_cookie(response: Response, user_id: int):
+    response.set_cookie(COOKIE_NAME, serializer.dumps(user_id),
+                        httponly=True, samesite="lax", max_age=30 * 86400)
+
+
 # --- Pydantic schemas ---
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
+
 
 class RecordCreate(BaseModel):
     type: str
@@ -38,13 +74,61 @@ class ClassifyRequest(BaseModel):
     note: str
 
 
-# --- API routes ---
+# --- Auth API ---
+
+@app.post("/api/register")
+def register(data: AuthRequest, response: Response):
+    if len(data.username) < 2 or len(data.password) < 4:
+        return JSONResponse({"error": "用户名至少2位，密码至少4位"}, 400)
+    db = SessionLocal()
+    if db.query(User).filter(User.username == data.username).first():
+        db.close()
+        return JSONResponse({"error": "用户名已存在"}, 400)
+    pw_hash = bcrypt.hashpw(data.password.encode(), bcrypt.gensalt()).decode()
+    user = User(username=data.username, password_hash=pw_hash)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    db.close()
+    set_session_cookie(response, user.id)
+    return {"ok": True, "username": user.username}
+
+
+@app.post("/api/login")
+def login(data: AuthRequest, response: Response):
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == data.username).first()
+    db.close()
+    if not user or not bcrypt.checkpw(data.password.encode(), user.password_hash.encode()):
+        return JSONResponse({"error": "用户名或密码错误"}, 401)
+    set_session_cookie(response, user.id)
+    return {"ok": True, "username": user.username}
+
+
+@app.post("/api/logout")
+def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/user")
+def get_user(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    return {"username": user.username}
+
+
+# --- Data API (require auth) ---
 
 @app.get("/api/records")
-def get_records(month: str = Query(None), category: str = Query(None)):
+def get_records(request: Request, month: str = Query(None), category: str = Query(None)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
-    q = db.query(Record).order_by(Record.date.desc(), Record.id.desc())
-    if month:  # YYYY-MM
+    q = db.query(Record).filter(Record.user_id == user.id).order_by(Record.date.desc(), Record.id.desc())
+    if month:
         q = q.filter(Record.date.like(f"{month}%"))
     if category:
         q = q.filter(Record.category == category)
@@ -59,10 +143,13 @@ def get_records(month: str = Query(None), category: str = Query(None)):
 
 
 @app.post("/api/records")
-def create_record(data: RecordCreate):
+def create_record(request: Request, data: RecordCreate):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
-    record = Record(type=data.type, amount=data.amount, category=data.category,
-                    note=data.note, date=data.date)
+    record = Record(user_id=user.id, type=data.type, amount=data.amount,
+                    category=data.category, note=data.note, date=data.date)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -73,9 +160,12 @@ def create_record(data: RecordCreate):
 
 
 @app.delete("/api/records/{record_id}")
-def delete_record(record_id: int):
+def delete_record(request: Request, record_id: int):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
-    record = db.query(Record).filter(Record.id == record_id).first()
+    record = db.query(Record).filter(Record.id == record_id, Record.user_id == user.id).first()
     if not record:
         db.close()
         return {"error": "not found"}
@@ -86,12 +176,14 @@ def delete_record(record_id: int):
 
 
 @app.get("/api/stats/monthly")
-def monthly_stats(month: str = Query(...)):
-    """月度统计，按分类汇总。month 格式: YYYY-MM"""
+def monthly_stats(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
     rows = (
         db.query(Record.type, Record.category, func.sum(Record.amount))
-        .filter(Record.date.like(f"{month}%"))
+        .filter(Record.user_id == user.id, Record.date.like(f"{month}%"))
         .group_by(Record.type, Record.category)
         .all()
     )
@@ -118,22 +210,23 @@ def monthly_stats(month: str = Query(...)):
 
 
 @app.get("/api/stats/trend")
-def trend_stats(months: int = Query(6)):
-    """近 N 个月收支趋势"""
+def trend_stats(request: Request, months: int = Query(6)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
-    # 获取所有记录按月汇总
     rows = (
         db.query(
             func.substr(Record.date, 1, 7).label("month"),
             Record.type,
             func.sum(Record.amount),
         )
+        .filter(Record.user_id == user.id)
         .group_by("month", Record.type)
         .order_by("month")
         .all()
     )
     db.close()
-    # 组装数据
     data = {}
     for month, type_, total in rows:
         if month not in data:
@@ -153,22 +246,25 @@ def get_categories():
 
 
 @app.post("/api/ai/classify")
-async def ai_classify(data: ClassifyRequest):
+async def ai_classify(request: Request, data: ClassifyRequest):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     category = await classify(data.note)
     return {"category": category}
 
 
 @app.post("/api/import")
-async def import_csv(file: UploadFile = File(...)):
-    """导入支付宝或微信账单 CSV"""
+async def import_csv(request: Request, file: UploadFile = File(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
     raw = await file.read()
-    # 尝试 UTF-8（微信），失败则 GBK（支付宝）
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = raw.decode("gbk")
 
-    # 自动检测平台
     if "支付宝" in text[:500] or "交易号" in text[:2000]:
         records_data = parse_alipay_csv(text)
         source = "alipay"
@@ -186,6 +282,7 @@ async def import_csv(file: UploadFile = File(...)):
             skipped += 1
             continue
         record = Record(
+            user_id=user.id,
             type=r["type"], amount=r["amount"], category=r["category"],
             note=r["note"], date=r["date"],
         )

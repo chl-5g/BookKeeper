@@ -8,119 +8,149 @@
 </head>
 <body>
 <div id="app">
-    <div class="header">{{ pageTitle }}</div>
-
-    <!-- 首页 -->
-    <div class="page" :class="{active: tab === 'home'}">
-        <div class="month-selector">
-            <button @click="changeMonth(-1)">&lt;</button>
-            <span class="month-text">{{ currentMonth }}</span>
-            <button @click="changeMonth(1)">&gt;</button>
-        </div>
-        <div class="card overview">
-            <div class="item">
-                <div class="label">收入</div>
-                <div class="value income">{{ stats.income_total.toFixed(2) }}</div>
+    <!-- 登录/注册页 -->
+    <div v-if="!user" class="auth-page">
+        <div class="auth-logo">记账本</div>
+        <div class="card auth-card">
+            <div class="type-switch">
+                <button :class="{'active-income': authMode === 'login'}" @click="authMode='login'">登录</button>
+                <button :class="{'active-income': authMode === 'register'}" @click="authMode='register'">注册</button>
             </div>
-            <div class="item">
-                <div class="label">支出</div>
-                <div class="value expense">{{ stats.expense_total.toFixed(2) }}</div>
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" v-model="authForm.username" placeholder="请输入用户名" @keyup.enter="submitAuth">
             </div>
-            <div class="item">
-                <div class="label">结余</div>
-                <div class="value">{{ (stats.income_total - stats.expense_total).toFixed(2) }}</div>
+            <div class="form-group">
+                <label>密码</label>
+                <input type="password" v-model="authForm.password" placeholder="请输入密码" @keyup.enter="submitAuth">
             </div>
-        </div>
-        <div class="card">
-            <div class="section-title">最近记录</div>
-            <div v-if="records.length === 0" class="empty">暂无记录</div>
-            <div v-for="r in records" :key="r.id" class="record-item">
-                <span class="icon">{{ getCatIcon(r.category) }}</span>
-                <div class="info">
-                    <div class="cat">{{ r.category }}</div>
-                    <div class="note" v-if="r.note">{{ r.note }}</div>
-                </div>
-                <span class="amount" :class="r.type">{{ r.type === 'income' ? '+' : '-' }}{{ r.amount.toFixed(2) }}</span>
-                <span class="date-text">{{ r.date.slice(5) }}</span>
-                <button class="delete-btn" @click="deleteRecord(r.id)">×</button>
-            </div>
+            <div v-if="authError" class="auth-error">{{ authError }}</div>
+            <button class="submit-btn" @click="submitAuth">{{ authMode === 'login' ? '登录' : '注册' }}</button>
         </div>
     </div>
 
-    <!-- 记账 -->
-    <div class="page" :class="{active: tab === 'add'}">
-        <div class="card">
-            <div class="type-switch">
-                <button :class="{'active-expense': form.type === 'expense'}" @click="form.type='expense'; form.category=''">支出</button>
-                <button :class="{'active-income': form.type === 'income'}" @click="form.type='income'; form.category=''">收入</button>
+    <!-- 主界面 -->
+    <template v-if="user">
+        <div class="header">
+            <span>{{ pageTitle }}</span>
+            <div class="header-right">
+                <span class="header-user">{{ user }}</span>
+                <button class="header-logout" @click="doLogout">退出</button>
             </div>
-            <div class="form-group">
-                <label>金额</label>
-                <input type="number" v-model.number="form.amount" placeholder="0.00" step="0.01" inputmode="decimal">
+        </div>
+
+        <!-- 首页 -->
+        <div class="page" :class="{active: tab === 'home'}">
+            <div class="month-selector">
+                <button @click="changeMonth(-1)">&lt;</button>
+                <span class="month-text">{{ currentMonth }}</span>
+                <button @click="changeMonth(1)">&gt;</button>
             </div>
-            <div class="form-group">
-                <label>备注</label>
-                <input type="text" v-model="form.note" placeholder="输入备注，AI自动识别分类" @blur="aiClassify">
+            <div class="card overview">
+                <div class="item">
+                    <div class="label">收入</div>
+                    <div class="value income">{{ stats.income_total.toFixed(2) }}</div>
+                </div>
+                <div class="item">
+                    <div class="label">支出</div>
+                    <div class="value expense">{{ stats.expense_total.toFixed(2) }}</div>
+                </div>
+                <div class="item">
+                    <div class="label">结余</div>
+                    <div class="value">{{ (stats.income_total - stats.expense_total).toFixed(2) }}</div>
+                </div>
             </div>
-            <div v-if="aiHint" class="ai-hint" @click="form.category = aiHint">AI建议：{{ aiHint }}（点击采用）</div>
-            <div class="form-group">
-                <label>分类</label>
-                <div class="category-grid">
-                    <div v-for="c in filteredCategories" :key="c.id" class="cat-btn" :class="{active: form.category === c.name}" @click="form.category = c.name">
-                        <span class="cat-icon">{{ c.icon }}</span>
-                        <span>{{ c.name }}</span>
+            <div class="card">
+                <div class="section-title">最近记录</div>
+                <div v-if="records.length === 0" class="empty">暂无记录</div>
+                <div v-for="r in records" :key="r.id" class="record-item">
+                    <span class="icon">{{ getCatIcon(r.category) }}</span>
+                    <div class="info">
+                        <div class="cat">{{ r.category }}</div>
+                        <div class="note" v-if="r.note">{{ r.note }}</div>
+                    </div>
+                    <span class="amount" :class="r.type">{{ r.type === 'income' ? '+' : '-' }}{{ r.amount.toFixed(2) }}</span>
+                    <span class="date-text">{{ r.date.slice(5) }}</span>
+                    <button class="delete-btn" @click="deleteRecord(r.id)">×</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 记账 -->
+        <div class="page" :class="{active: tab === 'add'}">
+            <div class="card">
+                <div class="type-switch">
+                    <button :class="{'active-expense': form.type === 'expense'}" @click="form.type='expense'; form.category=''">支出</button>
+                    <button :class="{'active-income': form.type === 'income'}" @click="form.type='income'; form.category=''">收入</button>
+                </div>
+                <div class="form-group">
+                    <label>金额</label>
+                    <input type="number" v-model.number="form.amount" placeholder="0.00" step="0.01" inputmode="decimal">
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <input type="text" v-model="form.note" placeholder="输入备注，AI自动识别分类" @blur="aiClassify">
+                </div>
+                <div v-if="aiHint" class="ai-hint" @click="form.category = aiHint">AI建议：{{ aiHint }}（点击采用）</div>
+                <div class="form-group">
+                    <label>分类</label>
+                    <div class="category-grid">
+                        <div v-for="c in filteredCategories" :key="c.id" class="cat-btn" :class="{active: form.category === c.name}" @click="form.category = c.name">
+                            <span class="cat-icon">{{ c.icon }}</span>
+                            <span>{{ c.name }}</span>
+                        </div>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>日期</label>
+                    <input type="date" v-model="form.date">
+                </div>
+                <button class="submit-btn" @click="submitRecord" :disabled="!canSubmit">记一笔</button>
             </div>
-            <div class="form-group">
-                <label>日期</label>
-                <input type="date" v-model="form.date">
+            <div class="card">
+                <div class="section-title">导入账单</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">支持支付宝/微信导出的 CSV 账单文件</p>
+                <input type="file" accept=".csv" @change="importCSV" ref="csvInput" style="display:none">
+                <button class="submit-btn" style="background:#1890ff" @click="$refs.csvInput.click()">选择 CSV 文件</button>
+                <div v-if="importResult" class="import-result" :class="{error: importResult.error}">
+                    {{ importResult.error || `导入成功！来源：${importResult.source === 'alipay' ? '支付宝' : '微信'}，导入 ${importResult.imported} 条，跳过 ${importResult.skipped} 条` }}
+                </div>
             </div>
-            <button class="submit-btn" @click="submitRecord" :disabled="!canSubmit">记一笔</button>
         </div>
-        <div class="card">
-            <div class="section-title">导入账单</div>
-            <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">支持支付宝/微信导出的 CSV 账单文件</p>
-            <input type="file" accept=".csv" @change="importCSV" ref="csvInput" style="display:none">
-            <button class="submit-btn" style="background:#1890ff" @click="$refs.csvInput.click()">选择 CSV 文件</button>
-            <div v-if="importResult" class="import-result" :class="{error: importResult.error}">
-                {{ importResult.error || `导入成功！来源：${importResult.source === 'alipay' ? '支付宝' : '微信'}，导入 ${importResult.imported} 条，跳过 ${importResult.skipped} 条` }}
-            </div>
-        </div>
-    </div>
 
-    <!-- 统计 -->
-    <div class="page" :class="{active: tab === 'stats'}">
-        <div class="month-selector">
-            <button @click="changeMonth(-1)">&lt;</button>
-            <span class="month-text">{{ currentMonth }}</span>
-            <button @click="changeMonth(1)">&gt;</button>
+        <!-- 统计 -->
+        <div class="page" :class="{active: tab === 'stats'}">
+            <div class="month-selector">
+                <button @click="changeMonth(-1)">&lt;</button>
+                <span class="month-text">{{ currentMonth }}</span>
+                <button @click="changeMonth(1)">&gt;</button>
+            </div>
+            <div class="card">
+                <div class="section-title">支出分类</div>
+                <div id="pie-chart" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="section-title">收支趋势</div>
+                <div id="trend-chart" class="chart-container"></div>
+            </div>
         </div>
-        <div class="card">
-            <div class="section-title">支出分类</div>
-            <div id="pie-chart" class="chart-container"></div>
-        </div>
-        <div class="card">
-            <div class="section-title">收支趋势</div>
-            <div id="trend-chart" class="chart-container"></div>
-        </div>
-    </div>
 
-    <!-- 底部导航 -->
-    <div class="bottom-nav">
-        <div class="nav-item" :class="{active: tab === 'home'}" @click="switchTab('home')">
-            <span class="nav-icon">🏠</span>
-            <span>首页</span>
+        <!-- 底部导航 -->
+        <div class="bottom-nav">
+            <div class="nav-item" :class="{active: tab === 'home'}" @click="switchTab('home')">
+                <span class="nav-icon">🏠</span>
+                <span>首页</span>
+            </div>
+            <div class="nav-item" :class="{active: tab === 'add'}" @click="switchTab('add')">
+                <span class="nav-icon">✏️</span>
+                <span>记账</span>
+            </div>
+            <div class="nav-item" :class="{active: tab === 'stats'}" @click="switchTab('stats')">
+                <span class="nav-icon">📊</span>
+                <span>统计</span>
+            </div>
         </div>
-        <div class="nav-item" :class="{active: tab === 'add'}" @click="switchTab('add')">
-            <span class="nav-icon">✏️</span>
-            <span>记账</span>
-        </div>
-        <div class="nav-item" :class="{active: tab === 'stats'}" @click="switchTab('stats')">
-            <span class="nav-icon">📊</span>
-            <span>统计</span>
-        </div>
-    </div>
+    </template>
 </div>
 
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>

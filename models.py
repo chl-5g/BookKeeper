@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Text, Float
+from sqlalchemy import create_engine, Column, Integer, Text, Float, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = "sqlite:///data/bookkeeper.db"
@@ -8,9 +8,18 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(Text, nullable=False, unique=True)
+    password_hash = Column(Text, nullable=False)
+    created_at = Column(Text, server_default="CURRENT_TIMESTAMP")
+
+
 class Record(Base):
     __tablename__ = "records"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     type = Column(Text, nullable=False)       # 'income' / 'expense'
     amount = Column(Float, nullable=False)
     category = Column(Text, nullable=False)

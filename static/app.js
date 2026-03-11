@@ -2,6 +2,13 @@ const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
 
 createApp({
     setup() {
+        // Auth state
+        const user = ref(null);
+        const authMode = ref('login');
+        const authForm = ref({ username: '', password: '' });
+        const authError = ref('');
+
+        // App state
         const tab = ref('home');
         const records = ref([]);
         const categories = ref([]);
@@ -31,7 +38,6 @@ createApp({
             form.value.amount > 0 && form.value.category && form.value.date
         );
 
-        // Icon lookup
         const catIconMap = {};
         function getCatIcon(name) {
             return catIconMap[name] || '📦';
@@ -45,6 +51,52 @@ createApp({
             return res.json();
         }
 
+        // Auth
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/user');
+                if (res.ok) {
+                    const data = await res.json();
+                    user.value = data.username;
+                    await loadCategories();
+                    await loadAll();
+                }
+            } catch (e) { /* not logged in */ }
+        }
+
+        async function submitAuth() {
+            authError.value = '';
+            const url = authMode.value === 'login' ? '/api/login' : '/api/register';
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(authForm.value),
+                });
+                const data = await res.json();
+                if (data.error) {
+                    authError.value = data.error;
+                } else {
+                    user.value = data.username;
+                    authForm.value = { username: '', password: '' };
+                    await loadCategories();
+                    await loadAll();
+                }
+            } catch (e) {
+                authError.value = '网络错误';
+            }
+        }
+
+        async function doLogout() {
+            await api('POST', '/api/logout');
+            user.value = null;
+            records.value = [];
+            stats.value = { income_total: 0, expense_total: 0, income_categories: [], expense_categories: [] };
+            trendData.value = [];
+            tab.value = 'home';
+        }
+
+        // Data loading
         async function loadCategories() {
             categories.value = await api('GET', '/api/categories');
             categories.value.forEach(c => { catIconMap[c.name] = c.icon; });
@@ -173,12 +225,10 @@ createApp({
         watch(() => stats.value, () => { if (tab.value === 'stats') nextTick(renderPieChart); }, { deep: true });
         watch(() => trendData.value, () => { if (tab.value === 'stats') nextTick(renderTrendChart); }, { deep: true });
 
-        onMounted(async () => {
-            await loadCategories();
-            await loadAll();
-        });
+        onMounted(() => { checkAuth(); });
 
         return {
+            user, authMode, authForm, authError, submitAuth, doLogout,
             tab, records, categories, stats, trendData, form, aiHint, importResult,
             currentMonth, pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
