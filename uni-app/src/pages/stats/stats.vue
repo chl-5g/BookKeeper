@@ -17,7 +17,7 @@
         <canvas canvas-id="pieChart" id="pieChart" class="pie-canvas" @click="onPieTap"></canvas>
         <view class="legend">
           <view v-for="(item, i) in expenseCategories" :key="i" class="legend-item">
-            <view class="legend-dot" :style="{ background: redShades[i % redShades.length] }"></view>
+            <view class="legend-dot" :style="{ background: expenseColors[i % expenseColors.length] }"></view>
             <text class="legend-name">{{ item.category }}</text>
             <text class="legend-amount">{{ item.amount }}</text>
             <text class="legend-pct">{{ ((item.amount / expenseTotal) * 100).toFixed(1) }}%</text>
@@ -31,7 +31,7 @@
       <text class="chart-title">收入分类</text>
       <view class="legend">
         <view v-for="(item, i) in incomeCategories" :key="i" class="legend-item">
-          <view class="legend-dot" :style="{ background: greenShades[i % greenShades.length] }"></view>
+          <view class="legend-dot" :style="{ background: incomeColors[i % incomeColors.length] }"></view>
           <text class="legend-name">{{ item.category }}</text>
           <text class="legend-amount">+{{ item.amount }}</text>
         </view>
@@ -62,8 +62,10 @@
 <script>
 import { get } from '../../utils/api.js'
 
-const RED_SHADES = ['#f44336', '#e53935', '#d32f2f', '#c62828', '#b71c1c', '#ff5252', '#ff1744', '#ef5350', '#e57373', '#ef9a9a']
-const GREEN_SHADES = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20', '#66BB6A', '#81C784', '#A5D6A7', '#69F0AE', '#00E676']
+// 支出：深色调
+const EXPENSE_COLORS = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#bf360c', '#e65100', '#d84315', '#8e2c1a', '#880e4f']
+// 收入：浅色调
+const INCOME_COLORS = ['#81C784', '#80CBC4', '#80DEEA', '#90CAF9', '#CE93D8', '#A5D6A7', '#B2DFDB', '#B3E5FC', '#C5CAE9', '#F0F4C3']
 
 export default {
   data() {
@@ -74,8 +76,8 @@ export default {
       incomeCategories: [],
       expenseTotal: 0,
       trendData: [],
-      redShades: RED_SHADES,
-      greenShades: GREEN_SHADES,
+      expenseColors: EXPENSE_COLORS,
+      incomeColors: INCOME_COLORS,
     }
   },
   onShow() {
@@ -119,7 +121,7 @@ export default {
         ctx.moveTo(cx, cy)
         ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle)
         ctx.closePath()
-        ctx.setFillStyle(RED_SHADES[i % RED_SHADES.length])
+        ctx.setFillStyle(EXPENSE_COLORS[i % EXPENSE_COLORS.length])
         ctx.fill()
         startAngle += sliceAngle
       })

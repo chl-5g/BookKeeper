@@ -25,14 +25,35 @@
       </view>
     </view>
 
+    <!-- 异常预警 -->
+    <view v-if="alerts.length > 0" class="alerts-card">
+      <text class="alerts-title">异常预警</text>
+      <view v-for="(alert, i) in alerts" :key="i" class="alert-item">
+        <text class="alert-icon">{{ alert.type === 'large' ? '💰' : '📈' }}</text>
+        <text class="alert-msg">{{ alert.message }}</text>
+      </view>
+    </view>
+
+    <!-- 预算进度 -->
+    <view v-if="budgetInfo.budget" class="budget-card">
+      <view class="budget-header">
+        <text class="budget-title">本月预算</text>
+        <text class="budget-nums">¥{{ budgetInfo.expense_total || 0 }} / ¥{{ budgetInfo.budget }}</text>
+      </view>
+      <view class="progress-bar">
+        <view class="progress-fill" :style="{ width: progressPct + '%', background: progressPct > 80 ? '#f44336' : '#667eea' }"></view>
+      </view>
+      <text class="budget-remain">剩余 ¥{{ budgetInfo.remaining || 0 }}</text>
+    </view>
+
     <!-- AI 功能说明 -->
     <view class="ai-banner" v-if="showAiBanner" @click="showAiBanner = false">
       <view class="ai-icon-wrap">
         <text class="ai-icon">AI</text>
       </view>
       <view class="ai-text-wrap">
-        <text class="ai-title">AI 智能分类</text>
-        <text class="ai-desc">记账时输入备注，AI 大模型（qwen3:14b）自动识别消费类型，如"星巴克拿铁"自动归类为"餐饮"，省去手动选择分类的麻烦。</text>
+        <text class="ai-title">AI 智能助手</text>
+        <text class="ai-desc">qwen3:14b 大模型驱动：自动分类、智能记账、收支报告、异常预警、预算管家、账单问答、消费画像，7 大 AI 功能助你理财。</text>
       </view>
       <text class="ai-close">x</text>
     </view>
@@ -57,16 +78,19 @@
       </view>
     </view>
 
-    <!-- 用户信息 + 退出 -->
+    <!-- 用户信息 + 操作 -->
     <view class="user-bar">
       <text class="user-name">{{ username }}</text>
-      <text class="logout-btn" @click="logout">退出登录</text>
+      <view class="user-actions">
+        <text class="clear-btn" @click="clearAll">清空记录</text>
+        <text class="logout-btn" @click="logout">退出登录</text>
+      </view>
     </view>
   </view>
 </template>
 
 <script>
-import { get, post } from '../../utils/api.js'
+import { get, post, del } from '../../utils/api.js'
 import { getUser, clearAuth } from '../../utils/auth.js'
 
 export default {
@@ -76,8 +100,16 @@ export default {
       currentMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
       records: [],
       stats: {},
+      alerts: [],
+      budgetInfo: {},
       username: '',
       showAiBanner: true,
+    }
+  },
+  computed: {
+    progressPct() {
+      if (!this.budgetInfo.budget) return 0
+      return Math.min(100, ((this.budgetInfo.expense_total || 0) / this.budgetInfo.budget * 100))
     }
   },
   onShow() {
@@ -87,12 +119,16 @@ export default {
   methods: {
     async loadData() {
       try {
-        const [records, stats] = await Promise.all([
+        const [records, stats, alertsRes, budgetRes] = await Promise.all([
           get(`/api/records?month=${this.currentMonth}`),
           get(`/api/stats/monthly?month=${this.currentMonth}`),
+          get(`/api/ai/alerts?month=${this.currentMonth}`).catch(() => ({ alerts: [] })),
+          get(`/api/ai/budget-advice?month=${this.currentMonth}`).catch(() => ({})),
         ])
         this.records = records
         this.stats = stats
+        this.alerts = alertsRes.alerts || []
+        this.budgetInfo = budgetRes
       } catch (e) {
         console.error('loadData', e)
       }
@@ -109,9 +145,29 @@ export default {
         content: '确定要删除这条记录吗？',
         success: async (res) => {
           if (res.confirm) {
-            const { del } = require('../../utils/api.js')
             await del(`/api/records/${id}`)
             this.loadData()
+          }
+        }
+      })
+    },
+    clearAll() {
+      uni.showModal({
+        title: '清空所有记录',
+        content: '确定要清空所有收支记录吗？此操作不可撤销！',
+        success: async (res) => {
+          if (res.confirm) {
+            uni.showModal({
+              title: '再次确认',
+              content: '删除后无法恢复，确定清空？',
+              success: async (res2) => {
+                if (res2.confirm) {
+                  await del('/api/records/all')
+                  this.loadData()
+                  uni.showToast({ title: '已清空', icon: 'success' })
+                }
+              }
+            })
           }
         }
       })
@@ -182,6 +238,75 @@ export default {
   width: 2rpx;
   height: 60rpx;
   background: rgba(255,255,255,0.3);
+}
+/* Alerts */
+.alerts-card {
+  margin: 20rpx 24rpx 0;
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  border-left: 8rpx solid #f44336;
+}
+.alerts-title {
+  font-size: 26rpx;
+  font-weight: bold;
+  color: #f44336;
+  display: block;
+  margin-bottom: 12rpx;
+}
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12rpx;
+  padding: 8rpx 0;
+}
+.alert-icon {
+  font-size: 28rpx;
+  flex-shrink: 0;
+}
+.alert-msg {
+  font-size: 24rpx;
+  color: #666;
+  line-height: 1.6;
+}
+/* Budget progress */
+.budget-card {
+  margin: 20rpx 24rpx 0;
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+}
+.budget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.budget-title {
+  font-size: 26rpx;
+  font-weight: bold;
+  color: #333;
+}
+.budget-nums {
+  font-size: 24rpx;
+  color: #666;
+}
+.progress-bar {
+  height: 16rpx;
+  background: #eee;
+  border-radius: 8rpx;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 8rpx;
+  transition: width 0.3s;
+}
+.budget-remain {
+  font-size: 22rpx;
+  color: #999;
+  margin-top: 8rpx;
+  display: block;
 }
 /* AI banner */
 .ai-banner {
@@ -303,6 +428,14 @@ export default {
 .user-name {
   font-size: 28rpx;
   color: #333;
+}
+.user-actions {
+  display: flex;
+  gap: 24rpx;
+}
+.clear-btn {
+  font-size: 26rpx;
+  color: #999;
 }
 .logout-btn {
   font-size: 26rpx;

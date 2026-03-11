@@ -19,6 +19,12 @@
 			}
 		},
 		{
+			"path": "pages/ai/ai",
+			"style": {
+				"navigationBarTitleText": "AI"
+			}
+		},
+		{
 			"path": "pages/login/login",
 			"style": {
 				"navigationBarTitleText": "登录",
@@ -43,6 +49,10 @@
 			{
 				"pagePath": "pages/stats/stats",
 				"text": "统计"
+			},
+			{
+				"pagePath": "pages/ai/ai",
+				"text": "AI"
 			}
 		]
 	},
