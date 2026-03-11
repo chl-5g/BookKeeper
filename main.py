@@ -530,6 +530,151 @@ def set_budget(request: Request, data: BudgetSet):
     return {"ok": True}
 
 
+@app.get("/api/budget/suggest")
+def suggest_budget(request: Request):
+    """基于历史数据计算下月预算建议（纯计算，不调 LLM）"""
+    import calendar
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+
+    # 查询所有月份的收支汇总
+    rows = (db.query(
+        func.substr(Record.date, 1, 7).label("month"),
+        Record.type, func.sum(Record.amount))
+        .filter(Record.user_id == user.id)
+        .group_by("month", Record.type)
+        .all())
+
+    # 查询各月分类支出（找大头）
+    cat_rows = (db.query(
+        func.substr(Record.date, 1, 7).label("month"),
+        Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id, Record.type == "expense")
+        .group_by("month", Record.category)
+        .all())
+    db.close()
+
+    if not rows:
+        return {"error": "暂无历史数据，无法生成建议"}
+
+    # 按月汇总
+    months = {}
+    for month, type_, total in rows:
+        if month not in months:
+            months[month] = {"income": 0.0, "expense": 0.0}
+        months[month][type_] += total
+
+    # 按月分类汇总
+    month_cats = {}
+    for month, cat, total in cat_rows:
+        if month not in month_cats:
+            month_cats[month] = {}
+        month_cats[month][cat] = round(total, 2)
+
+    # 取最近 3-6 个月（排除当月，可能不完整）
+    today = datetime.now()
+    current_month = today.strftime("%Y-%m")
+    sorted_months = sorted([m for m in months.keys() if m < current_month], reverse=True)
+
+    if not sorted_months:
+        # 只有当月数据
+        sorted_months = [current_month]
+
+    recent = sorted_months[:6]
+
+    # 计算月均收入和支出
+    avg_income = sum(months[m]["income"] for m in recent) / len(recent)
+    avg_expense = sum(months[m]["expense"] for m in recent) / len(recent)
+    avg_saving_rate = (avg_income - avg_expense) / avg_income if avg_income > 0 else 0
+
+    # 计算支出趋势（最近 3 个月 vs 更早）
+    trend = "stable"
+    if len(recent) >= 3:
+        recent_3_avg = sum(months[m]["expense"] for m in recent[:3]) / 3
+        if len(recent) >= 5:
+            older_avg = sum(months[m]["expense"] for m in recent[2:5]) / len(recent[2:5])
+            if recent_3_avg > older_avg * 1.15:
+                trend = "rising"
+            elif recent_3_avg < older_avg * 0.85:
+                trend = "falling"
+
+    # 分类支出月均（找大头）
+    all_cats = {}
+    for m in recent:
+        for cat, amt in month_cats.get(m, {}).items():
+            if cat not in all_cats:
+                all_cats[cat] = []
+            all_cats[cat].append(amt)
+    top_cats = sorted(
+        [{"category": c, "avg": round(sum(v)/len(v), 0), "months": len(v)}
+         for c, v in all_cats.items()],
+        key=lambda x: -x["avg"]
+    )[:5]
+
+    # 计算建议预算
+    # 基础：月均支出
+    base = round(avg_expense, 0)
+
+    # 趋势调整
+    if trend == "rising":
+        adjusted = round(base * 0.95, 0)  # 支出上升趋势，收紧 5%
+    elif trend == "falling":
+        adjusted = round(base * 1.0, 0)   # 支出下降，维持
+    else:
+        adjusted = base
+
+    # 如果有收入数据，确保建议预算不超过月均收入的 80%
+    if avg_income > 0:
+        ceiling = round(avg_income * 0.8, 0)
+        suggested = min(adjusted, ceiling)
+    else:
+        suggested = adjusted
+
+    # 取整到百
+    suggested = round(suggested / 100) * 100
+
+    # 下个月是哪个月
+    if today.month == 12:
+        next_month = f"{today.year + 1}-01"
+    else:
+        next_month = f"{today.year}-{today.month + 1:02d}"
+
+    # 生成建议文本
+    lines = []
+    lines.append(f"基于近 {len(recent)} 个月的数据分析：")
+    lines.append(f"- 月均收入：{avg_income:.0f} 元，月均支出：{avg_expense:.0f} 元，储蓄率：{avg_saving_rate*100:.0f}%")
+
+    if trend == "rising":
+        lines.append("- 支出趋势：**上升**，建议适当收紧预算")
+    elif trend == "falling":
+        lines.append("- 支出趋势：**下降**，消费控制得不错")
+    else:
+        lines.append("- 支出趋势：**平稳**")
+
+    if top_cats:
+        cats_str = "、".join(f"{c['category']}{c['avg']:.0f}元" for c in top_cats[:3])
+        lines.append(f"- 主要支出：{cats_str}")
+
+    lines.append(f"\n**建议 {next_month} 预算：{suggested:.0f} 元**")
+
+    if avg_income > 0 and suggested < avg_expense:
+        save_extra = round(avg_expense - suggested, 0)
+        lines.append(f"比月均支出少 {save_extra:.0f} 元，每月可多存下这笔钱")
+
+    return {
+        "month": next_month,
+        "suggested": suggested,
+        "avg_income": round(avg_income, 0),
+        "avg_expense": round(avg_expense, 0),
+        "saving_rate": round(avg_saving_rate * 100, 1),
+        "trend": trend,
+        "top_categories": top_cats,
+        "advice": "\n".join(lines),
+    }
+
+
 @app.get("/api/ai/budget-advice")
 async def get_budget_advice(request: Request, month: str = Query(...)):
     user = require_user(request)

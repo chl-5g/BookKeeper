@@ -68,8 +68,14 @@
         </view>
         <text class="progress-text">剩余 ¥{{ budgetInfo.remaining || 0 }}，已过 {{ budgetInfo.days_passed }}/{{ budgetInfo.days_total }} 天</text>
       </view>
+      <button class="ai-btn" style="background:#667eea;" :disabled="suggestLoading" @click="suggestBudget">
+        {{ suggestLoading ? '计算中...' : '智能预算建议' }}
+      </button>
+      <view v-if="suggestText" class="answer-card">
+        <text class="answer-text">{{ suggestText }}</text>
+      </view>
       <button class="ai-btn" :disabled="budgetAdviceLoading || !budgetInfo.budget" @click="getBudgetAdvice">
-        {{ budgetAdviceLoading ? '生成中...' : 'AI 预算建议' }}
+        {{ budgetAdviceLoading ? '分析中...' : '执行情况分析' }}
       </button>
       <view v-if="budgetAdviceText" class="answer-card">
         <text class="answer-text">{{ budgetAdviceText }}</text>
@@ -120,6 +126,8 @@ export default {
       budgetInfo: {},
       budgetAdviceText: '',
       budgetAdviceLoading: false,
+      suggestText: '',
+      suggestLoading: false,
       // 画像
       profileText: '',
       profileLoading: false,
@@ -178,6 +186,17 @@ export default {
         this.budgetInfo = res
       } catch (e) { this.budgetAdviceText = '获取失败' }
       finally { this.budgetAdviceLoading = false }
+    },
+    async suggestBudget() {
+      this.suggestLoading = true
+      this.suggestText = ''
+      try {
+        const res = await get('/api/budget/suggest')
+        if (res.error) { this.suggestText = res.error; return }
+        this.suggestText = res.advice || ''
+        this.budgetAmount = res.suggested
+      } catch (e) { this.suggestText = '获取失败' }
+      finally { this.suggestLoading = false }
     },
     // 画像
     async generateProfile() {

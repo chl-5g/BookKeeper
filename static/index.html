@@ -68,9 +68,15 @@
                     <input type="number" v-model.number="budgetAmount" placeholder="输入月预算金额" class="styled-input" step="100">
                     <button class="styled-btn" @click="setBudget">设定</button>
                 </div>
+                <div style="margin-top:10px;">
+                    <button class="styled-btn styled-btn-full" @click="suggestBudget" :disabled="suggestLoading" style="background:#667eea;">
+                        {{ suggestLoading ? '计算中...' : '智能预算建议' }}
+                    </button>
+                    <div v-if="suggestText" class="report-content" v-html="renderMarkdown(suggestText)"></div>
+                </div>
                 <div v-if="budgetInfo.budget" style="margin-top:10px;">
                     <button class="styled-btn styled-btn-full" @click="getBudgetAdvice" :disabled="budgetAdviceLoading">
-                        {{ budgetAdviceLoading ? '分析中...' : '预算建议' }}
+                        {{ budgetAdviceLoading ? '分析中...' : '执行情况分析' }}
                     </button>
                     <div v-if="budgetAdviceText" class="report-content" v-html="renderMarkdown(budgetAdviceText)"></div>
                 </div>

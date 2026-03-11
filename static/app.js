@@ -24,6 +24,8 @@ createApp({
         const budgetAmount = ref(null);
         const budgetAdviceText = ref('');
         const budgetAdviceLoading = ref(false);
+        const suggestText = ref('');
+        const suggestLoading = ref(false);
         const smartText = ref('');
         const smartResult = ref(null);
         const smartError = ref('');
@@ -347,6 +349,17 @@ createApp({
             finally { budgetAdviceLoading.value = false; }
         }
 
+        async function suggestBudget() {
+            suggestLoading.value = true; suggestText.value = '';
+            try {
+                const res = await api('GET', '/api/budget/suggest');
+                if (res.error) { suggestText.value = res.error; return; }
+                suggestText.value = res.advice || '';
+                budgetAmount.value = res.suggested;
+            } catch (e) { suggestText.value = '获取失败'; }
+            finally { suggestLoading.value = false; }
+        }
+
         // Clear all records
         async function clearAllRecords() {
             if (!confirm('确定要清空所有收支记录吗？此操作不可撤销！')) return;
@@ -442,6 +455,7 @@ createApp({
             reportText, reportLoading, generateReport, renderMarkdown,
             profileText, profileLoading, generateProfile,
             alerts, budgetInfo, budgetAmount, budgetAdviceText, budgetAdviceLoading,
+            suggestText, suggestLoading, suggestBudget,
             setBudget, getBudgetAdvice,
             smartText, smartResult, smartError, smartLoading, smartAdd, confirmSmartAdd,
             chatQuestion, chatAnswer, chatLoading, askChat,
