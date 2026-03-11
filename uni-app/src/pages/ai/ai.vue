@@ -2,44 +2,33 @@
   <view class="page">
     <!-- 功能切换 -->
     <view class="func-tabs">
-      <text :class="['func-tab', activeFunc === 'smart' && 'func-active']" @click="activeFunc = 'smart'">智能记账</text>
-      <text :class="['func-tab', activeFunc === 'chat' && 'func-active']" @click="activeFunc = 'chat'">账单问答</text>
-      <text :class="['func-tab', activeFunc === 'budget' && 'func-active']" @click="activeFunc = 'budget'">预算</text>
+      <text :class="['func-tab', activeFunc === 'report' && 'func-active']" @click="activeFunc = 'report'">报告</text>
       <text :class="['func-tab', activeFunc === 'profile' && 'func-active']" @click="activeFunc = 'profile'">画像</text>
+      <text :class="['func-tab', activeFunc === 'chat' && 'func-active']" @click="activeFunc = 'chat'">问答</text>
+      <text :class="['func-tab', activeFunc === 'budget' && 'func-active']" @click="activeFunc = 'budget'">预算</text>
     </view>
 
-    <!-- 智能记账 -->
-    <view v-if="activeFunc === 'smart'" class="card">
-      <text class="card-title">智能记账</text>
-      <text class="card-desc">输入一句话，AI 自动解析金额、分类和日期</text>
-      <input v-model="smartText" placeholder="如：昨天打车花了30元" class="text-input" />
-      <button class="ai-btn" :disabled="smartLoading || !smartText.trim()" @click="smartAdd">
-        {{ smartLoading ? '解析中...' : 'AI 解析' }}
+    <!-- AI 月度报告 -->
+    <view v-if="activeFunc === 'report'" class="card">
+      <text class="card-title">AI 月度报告</text>
+      <text class="card-desc">{{ currentMonth }} 收支分析与理财建议</text>
+      <button class="ai-btn" :disabled="reportLoading" @click="generateReport">
+        {{ reportLoading ? '生成中...' : '生成报告' }}
       </button>
-      <view v-if="smartError" class="error-text">{{ smartError }}</view>
-      <view v-if="smartResult" class="result-card">
-        <text class="result-title">解析结果（点击确认入账）</text>
-        <view class="result-row">
-          <text class="result-label">类型</text>
-          <text class="result-value">{{ smartResult.type === 'income' ? '收入' : '支出' }}</text>
-        </view>
-        <view class="result-row">
-          <text class="result-label">金额</text>
-          <text class="result-value">¥{{ smartResult.amount }}</text>
-        </view>
-        <view class="result-row">
-          <text class="result-label">分类</text>
-          <text class="result-value">{{ smartResult.category }}</text>
-        </view>
-        <view class="result-row">
-          <text class="result-label">备注</text>
-          <text class="result-value">{{ smartResult.note }}</text>
-        </view>
-        <view class="result-row">
-          <text class="result-label">日期</text>
-          <text class="result-value">{{ smartResult.date }}</text>
-        </view>
-        <button class="confirm-btn" @click="confirmSmartAdd">确认入账</button>
+      <view v-if="reportText" class="answer-card">
+        <text class="answer-text">{{ reportText }}</text>
+      </view>
+    </view>
+
+    <!-- 消费画像 -->
+    <view v-if="activeFunc === 'profile'" class="card">
+      <text class="card-title">消费习惯画像</text>
+      <text class="card-desc">AI 分析你的消费习惯，给出标签和建议</text>
+      <button class="ai-btn" :disabled="profileLoading" @click="generateProfile">
+        {{ profileLoading ? '分析中...' : '生成画像' }}
+      </button>
+      <view v-if="profileText" class="answer-card">
+        <text class="answer-text">{{ profileText }}</text>
       </view>
     </view>
 
@@ -120,13 +109,8 @@ export default {
   data() {
     const now = new Date()
     return {
-      activeFunc: 'smart',
+      activeFunc: 'report',
       currentMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
-      // 智能记账
-      smartText: '',
-      smartResult: null,
-      smartError: '',
-      smartLoading: false,
       // 账单问答
       chatQuestion: '',
       chatAnswer: '',
@@ -161,31 +145,6 @@ export default {
           this.budgetAmount = this.budgetInfo.budget
         }
       } catch (e) { /* ignore */ }
-    },
-    // 智能记账
-    async smartAdd() {
-      const t = this.smartText.trim()
-      if (!t) return
-      this.smartLoading = true
-      this.smartError = ''
-      this.smartResult = null
-      try {
-        const res = await post('/api/ai/smart-add', { text: t })
-        if (res.error) this.smartError = res.error
-        else if (res.parsed) this.smartResult = res.parsed
-      } catch (e) { this.smartError = '解析失败' }
-      finally { this.smartLoading = false }
-    },
-    async confirmSmartAdd() {
-      if (!this.smartResult) return
-      try {
-        await post('/api/ai/smart-add/confirm', this.smartResult)
-        uni.showToast({ title: '入账成功', icon: 'success' })
-        this.smartResult = null
-        this.smartText = ''
-      } catch (e) {
-        uni.showToast({ title: '入账失败', icon: 'none' })
-      }
     },
     // 账单问答
     async askChat() {

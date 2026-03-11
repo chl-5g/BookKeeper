@@ -1,5 +1,26 @@
 <template>
   <view class="page">
+    <!-- 智能记账 -->
+    <view class="section smart-section">
+      <text class="section-title">智能记账</text>
+      <text class="smart-desc">输入一句话，AI 自动解析金额、分类和日期</text>
+      <view class="smart-row">
+        <input v-model="smartText" placeholder="如：昨天打车花了30元" class="smart-input" />
+        <button class="smart-btn" :disabled="smartLoading || !smartText.trim()" @click="smartAdd">
+          {{ smartLoading ? '...' : '解析' }}
+        </button>
+      </view>
+      <view v-if="smartError" class="smart-error">{{ smartError }}</view>
+      <view v-if="smartResult" class="smart-result">
+        <view class="result-row"><text class="rl">类型</text><text class="rv">{{ smartResult.type === 'income' ? '收入' : '支出' }}</text></view>
+        <view class="result-row"><text class="rl">金额</text><text class="rv">¥{{ smartResult.amount }}</text></view>
+        <view class="result-row"><text class="rl">分类</text><text class="rv">{{ smartResult.category }}</text></view>
+        <view class="result-row"><text class="rl">备注</text><text class="rv">{{ smartResult.note }}</text></view>
+        <view class="result-row"><text class="rl">日期</text><text class="rv">{{ smartResult.date }}</text></view>
+        <button class="confirm-btn" @click="confirmSmartAdd">确认入账</button>
+      </view>
+    </view>
+
     <!-- 收入/支出切换 -->
     <view class="type-switch">
       <text :class="['type-btn', form.type === 'expense' && 'active-expense']" @click="form.type = 'expense'">支出</text>
@@ -108,6 +129,10 @@ export default {
       aiHint: '',
       showGuide: false,
       importResult: null,
+      smartText: '',
+      smartResult: null,
+      smartError: '',
+      smartLoading: false,
     }
   },
   computed: {
@@ -122,6 +147,28 @@ export default {
     this.loadCategories()
   },
   methods: {
+    async smartAdd() {
+      const t = this.smartText.trim()
+      if (!t) return
+      this.smartLoading = true; this.smartError = ''; this.smartResult = null
+      try {
+        const res = await post('/api/ai/smart-add', { text: t })
+        if (res.error) this.smartError = res.error
+        else if (res.parsed) this.smartResult = res.parsed
+      } catch (e) { this.smartError = '解析失败' }
+      finally { this.smartLoading = false }
+    },
+    async confirmSmartAdd() {
+      if (!this.smartResult) return
+      try {
+        await post('/api/ai/smart-add/confirm', this.smartResult)
+        uni.showToast({ title: '入账成功', icon: 'success' })
+        this.smartResult = null; this.smartText = ''
+        uni.switchTab({ url: '/pages/home/home' })
+      } catch (e) {
+        uni.showToast({ title: '入账失败', icon: 'none' })
+      }
+    },
     async loadCategories() {
       try {
         this.categories = await get('/api/categories')
@@ -422,5 +469,80 @@ export default {
 .success-text {
   color: #4CAF50;
   font-size: 24rpx;
+}
+/* Smart add */
+.smart-section {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 24rpx;
+}
+.smart-desc {
+  font-size: 24rpx;
+  color: #888;
+  display: block;
+  margin-bottom: 16rpx;
+}
+.smart-row {
+  display: flex;
+  gap: 12rpx;
+}
+.smart-input {
+  flex: 1;
+  height: 72rpx;
+  border: 2rpx solid #eee;
+  border-radius: 12rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+}
+.smart-btn {
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 32rpx;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  font-size: 26rpx;
+  border-radius: 12rpx;
+  border: none;
+}
+.smart-btn[disabled] {
+  opacity: 0.5;
+}
+.smart-error {
+  color: #f44336;
+  font-size: 24rpx;
+  margin-top: 12rpx;
+}
+.smart-result {
+  background: #f8f8ff;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  margin-top: 16rpx;
+}
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+.rl {
+  font-size: 26rpx;
+  color: #999;
+}
+.rv {
+  font-size: 26rpx;
+  color: #333;
+  font-weight: 500;
+}
+.confirm-btn {
+  width: 100%;
+  height: 72rpx;
+  line-height: 72rpx;
+  background: #4CAF50;
+  color: #fff;
+  font-size: 28rpx;
+  border-radius: 12rpx;
+  border: none;
+  margin-top: 16rpx;
 }
 </style>

@@ -89,13 +89,13 @@
                     </div>
                 </div>
             </div>
-            <div class="card" style="display:flex;justify-content:flex-end;">
-                <button style="background:none;border:1px solid #f44336;color:#f44336;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;" @click="clearAllRecords">清空全部记录</button>
-            </div>
             <div class="card">
-                <div class="section-title">最近记录</div>
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>最近记录</span>
+                    <button style="background:none;border:1px solid #f44336;color:#f44336;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;" @click="clearAllRecords">清空全部</button>
+                </div>
                 <div v-if="records.length === 0" class="empty">暂无记录</div>
-                <div v-for="r in records" :key="r.id" class="record-item">
+                <div v-for="r in pagedRecords" :key="r.id" class="record-item">
                     <span class="icon">{{ getCatIcon(r.category) }}</span>
                     <div class="info">
                         <div class="cat">{{ r.category }}</div>
@@ -105,11 +105,38 @@
                     <span class="date-text">{{ r.date.slice(5) }}</span>
                     <button class="delete-btn" @click="deleteRecord(r.id)">×</button>
                 </div>
+                <div v-if="totalPages > 1" style="display:flex;justify-content:center;align-items:center;gap:16px;margin-top:12px;font-size:13px;">
+                    <button style="background:none;border:1px solid #ddd;border-radius:6px;padding:4px 14px;cursor:pointer;color:#667eea;" :disabled="currentPage <= 1" @click="currentPage--">&lt; 上一页</button>
+                    <span style="color:#999;">{{ currentPage }} / {{ totalPages }}</span>
+                    <button style="background:none;border:1px solid #ddd;border-radius:6px;padding:4px 14px;cursor:pointer;color:#667eea;" :disabled="currentPage >= totalPages" @click="currentPage++">下一页 &gt;</button>
+                </div>
             </div>
         </div>
 
         <!-- 记账 -->
         <div class="page" :class="{active: tab === 'add'}">
+            <!-- 智能记账 -->
+            <div class="card">
+                <div class="section-title">智能记账</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入自然语言，AI 自动解析。如："昨天星巴克38"、"工资到账15000"</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" v-model="smartText" placeholder="说一句话记账..." style="flex:1;" @keyup.enter="smartAdd">
+                    <button class="ai-report-btn" @click="smartAdd" :disabled="smartLoading">{{ smartLoading ? '解析中' : '解析' }}</button>
+                </div>
+                <div v-if="smartResult" class="card" style="margin-top:10px;background:#f8f8ff;">
+                    <div style="font-size:0.85rem;line-height:1.8;">
+                        <b>{{ smartResult.type === 'income' ? '收入' : '支出' }}</b> ¥{{ smartResult.amount }}<br>
+                        分类：{{ smartResult.category }}　备注：{{ smartResult.note }}<br>
+                        日期：{{ smartResult.date }}
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="submit-btn" style="flex:1;" @click="confirmSmartAdd">确认记账</button>
+                        <button style="flex:1;background:#eee;color:#666;border:none;border-radius:8px;padding:8px;cursor:pointer;" @click="smartResult=null">取消</button>
+                    </div>
+                </div>
+                <div v-if="smartError" style="color:#f44336;font-size:0.8rem;margin-top:8px;">{{ smartError }}</div>
+            </div>
+            <!-- 手动记账 -->
             <div class="card">
                 <div class="type-switch">
                     <button :class="{'active-expense': form.type === 'expense'}" @click="form.type='expense'; form.category=''">支出</button>
@@ -160,7 +187,7 @@
                 <input type="file" accept=".csv,.xlsx,.xls" @change="importCSV" ref="csvInput" style="display:none">
                 <button class="submit-btn" style="background:#1890ff" @click="$refs.csvInput.click()">选择账单文件</button>
                 <div v-if="importResult" class="import-result" :class="{error: importResult.error}">
-                    {{ importResult.error || `导入成功！来源：${importResult.source === 'alipay' ? '支付宝' : '微信'}，导入 ${importResult.imported} 条，跳过 ${importResult.skipped} 条` }}
+                    {{ importResult.error || `导入成功！来源：${importResult.source === 'alipay' ? '支付宝' : '微信'}，导入 ${importResult.imported} 条，跳过 ${importResult.skipped} 条${importResult.ai_classified ? '，AI 重新分类 ' + importResult.ai_classified + ' 条' : ''}` }}
                 </div>
             </div>
         </div>
@@ -184,6 +211,11 @@
                 <div class="section-title">收支趋势</div>
                 <div id="trend-chart" class="chart-container"></div>
             </div>
+        </div>
+
+        <!-- AI 助手 -->
+        <div class="page" :class="{active: tab === 'ai'}">
+            <!-- AI 财务报告 -->
             <div class="card">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                     <span>AI 财务报告</span>
@@ -216,31 +248,6 @@
                 <div v-if="!profileText && !profileLoading" class="report-placeholder">
                     分析多月消费数据，生成您的专属消费画像
                 </div>
-            </div>
-        </div>
-
-        <!-- AI 助手 -->
-        <div class="page" :class="{active: tab === 'ai'}">
-            <!-- 智能记账 -->
-            <div class="card">
-                <div class="section-title">智能记账</div>
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入自然语言，AI 自动解析。如："昨天星巴克38"、"工资到账15000"</p>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" v-model="smartText" placeholder="说一句话记账..." style="flex:1;" @keyup.enter="smartAdd">
-                    <button class="ai-report-btn" @click="smartAdd" :disabled="smartLoading">{{ smartLoading ? '解析中' : '解析' }}</button>
-                </div>
-                <div v-if="smartResult" class="card" style="margin-top:10px;background:#f8f8ff;">
-                    <div style="font-size:0.85rem;line-height:1.8;">
-                        <b>{{ smartResult.type === 'income' ? '收入' : '支出' }}</b> ¥{{ smartResult.amount }}<br>
-                        分类：{{ smartResult.category }}　备注：{{ smartResult.note }}<br>
-                        日期：{{ smartResult.date }}
-                    </div>
-                    <div style="display:flex;gap:8px;margin-top:8px;">
-                        <button class="submit-btn" style="flex:1;" @click="confirmSmartAdd">确认记账</button>
-                        <button style="flex:1;background:#eee;color:#666;border:none;border-radius:8px;padding:8px;cursor:pointer;" @click="smartResult=null">取消</button>
-                    </div>
-                </div>
-                <div v-if="smartError" style="color:#f44336;font-size:0.8rem;margin-top:8px;">{{ smartError }}</div>
             </div>
             <!-- 账单问答 -->
             <div class="card">

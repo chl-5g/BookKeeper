@@ -613,6 +613,21 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         else:
             return {"error": "无法识别的账单格式，请上传支付宝或微信的 CSV/Excel 账单"}
 
+    # 对分类为"其他"且有备注的记录，批量调用 AI 重新分类
+    ai_classified = 0
+    for r in records_data:
+        if r["amount"] <= 0:
+            continue
+        note = (r.get("note") or "").strip()
+        if r["category"] == "其他" and note:
+            try:
+                new_cat = await classify(note)
+                if new_cat and new_cat != "其他":
+                    r["category"] = new_cat
+                    ai_classified += 1
+            except Exception:
+                pass  # 分类失败保持"其他"
+
     db = SessionLocal()
     imported = 0
     skipped = 0
@@ -629,7 +644,7 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         imported += 1
     db.commit()
     db.close()
-    return {"ok": True, "source": source, "imported": imported, "skipped": skipped}
+    return {"ok": True, "source": source, "imported": imported, "skipped": skipped, "ai_classified": ai_classified}
 
 
 # --- WeChat login stub ---

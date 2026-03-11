@@ -60,11 +60,14 @@
 
     <!-- 记录列表 -->
     <view class="records-section">
-      <text class="section-title">交易记录</text>
+      <view class="section-header">
+        <text class="section-title">交易记录</text>
+        <text class="clear-btn" @click="clearAll">清空全部</text>
+      </view>
       <view v-if="records.length === 0" class="empty-tip">
         <text>本月暂无记录</text>
       </view>
-      <view v-for="item in records" :key="item.id" class="record-item" @longpress="confirmDelete(item.id)">
+      <view v-for="item in pagedRecords" :key="item.id" class="record-item" @longpress="confirmDelete(item.id)">
         <view class="record-left">
           <text class="record-cat">{{ item.category }}</text>
           <text class="record-note">{{ item.note || '-' }}</text>
@@ -76,15 +79,18 @@
           <text class="record-date">{{ item.date }}</text>
         </view>
       </view>
+      <!-- 分页 -->
+      <view v-if="totalPages > 1" class="pager">
+        <text class="page-btn" :class="{ disabled: currentPage <= 1 }" @click="currentPage > 1 && currentPage--">上一页</text>
+        <text class="page-info">{{ currentPage }} / {{ totalPages }}</text>
+        <text class="page-btn" :class="{ disabled: currentPage >= totalPages }" @click="currentPage < totalPages && currentPage++">下一页</text>
+      </view>
     </view>
 
-    <!-- 用户信息 + 操作 -->
+    <!-- 用户信息 + 退出 -->
     <view class="user-bar">
       <text class="user-name">{{ username }}</text>
-      <view class="user-actions">
-        <text class="clear-btn" @click="clearAll">清空记录</text>
-        <text class="logout-btn" @click="logout">退出登录</text>
-      </view>
+      <text class="logout-btn" @click="logout">退出登录</text>
     </view>
   </view>
 </template>
@@ -104,12 +110,20 @@ export default {
       budgetInfo: {},
       username: '',
       showAiBanner: true,
+      currentPage: 1,
     }
   },
   computed: {
     progressPct() {
       if (!this.budgetInfo.budget) return 0
       return Math.min(100, ((this.budgetInfo.expense_total || 0) / this.budgetInfo.budget * 100))
+    },
+    totalPages() {
+      return Math.max(1, Math.ceil(this.records.length / 10))
+    },
+    pagedRecords() {
+      const start = (this.currentPage - 1) * 10
+      return this.records.slice(start, start + 10)
     }
   },
   onShow() {
@@ -126,6 +140,7 @@ export default {
           get(`/api/ai/budget-advice?month=${this.currentMonth}`).catch(() => ({})),
         ])
         this.records = records
+        this.currentPage = 1
         this.stats = stats
         this.alerts = alertsRes.alerts || []
         this.budgetInfo = budgetRes
@@ -415,6 +430,42 @@ export default {
 }
 .income { color: #4CAF50; }
 .expense { color: #f44336; }
+/* Section header */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+.clear-btn {
+  font-size: 22rpx;
+  color: #f44336;
+  border: 1rpx solid #f44336;
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+}
+/* Pager */
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24rpx;
+  margin-top: 20rpx;
+}
+.page-btn {
+  font-size: 24rpx;
+  color: #667eea;
+  padding: 8rpx 24rpx;
+  border: 1rpx solid #ddd;
+  border-radius: 8rpx;
+}
+.page-btn.disabled {
+  color: #ccc;
+}
+.page-info {
+  font-size: 24rpx;
+  color: #999;
+}
 /* User bar */
 .user-bar {
   margin: 40rpx 24rpx 0;

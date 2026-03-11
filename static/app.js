@@ -33,6 +33,10 @@ createApp({
         const chatAnswer = ref('');
         const chatLoading = ref(false);
 
+        // 分页
+        const currentPage = ref(1);
+        const pageSize = 10;
+
         const now = new Date();
         const currentMonth = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
 
@@ -44,7 +48,13 @@ createApp({
             date: now.toISOString().slice(0, 10),
         });
 
-        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计' }[tab.value]));
+        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计', ai: 'AI' }[tab.value]));
+
+        const totalPages = computed(() => Math.max(1, Math.ceil(records.value.length / pageSize)));
+        const pagedRecords = computed(() => {
+            const start = (currentPage.value - 1) * pageSize;
+            return records.value.slice(start, start + pageSize);
+        });
 
         const filteredCategories = computed(() =>
             categories.value.filter(c => c.type === form.value.type)
@@ -120,6 +130,7 @@ createApp({
 
         async function loadRecords() {
             records.value = await api('GET', `/api/records?month=${currentMonth.value}`);
+            currentPage.value = 1;
         }
 
         async function loadStats() {
@@ -376,7 +387,8 @@ createApp({
             setBudget, getBudgetAdvice,
             smartText, smartResult, smartError, smartLoading, smartAdd, confirmSmartAdd,
             chatQuestion, chatAnswer, chatLoading, askChat,
-            currentMonth, pageTitle, filteredCategories, canSubmit,
+            currentMonth, currentPage, totalPages, pagedRecords,
+            pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
             changeMonth, switchTab, clearAllRecords,
         };
