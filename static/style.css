@@ -147,12 +147,6 @@ body {
 .category-grid .cat-btn .cat-icon { font-size: 1.3rem; margin-bottom: 2px; }
 .category-grid .cat-btn.active { border-color: var(--primary); background: #e8f5e9; }
 
-.ai-hint {
-    font-size: 0.8rem;
-    color: var(--primary);
-    margin-top: 4px;
-    cursor: pointer;
-}
 
 .submit-btn {
     width: 100%;

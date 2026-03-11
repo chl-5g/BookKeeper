@@ -53,11 +53,7 @@
     <view class="section">
       <text class="section-title">备注</text>
       <view class="note-row">
-        <input v-model="form.note" placeholder="输入备注，AI 自动识别分类" class="note-input" @blur="aiClassify" />
-      </view>
-      <view v-if="aiHint" class="ai-hint">
-        <text>AI 建议分类：</text>
-        <text class="ai-hint-cat" @click="form.category = aiHint">{{ aiHint }}</text>
+        <input v-model="form.note" placeholder="输入备注，自动识别分类" class="note-input" @input="aiClassify" />
       </view>
     </view>
 
@@ -126,7 +122,6 @@ export default {
         date: now.toISOString().slice(0, 10),
       },
       categories: [],
-      aiHint: '',
       showGuide: false,
       importResult: null,
       smartText: '',
@@ -137,7 +132,8 @@ export default {
   },
   computed: {
     filteredCategories() {
-      return this.categories.filter(c => c.type === this.form.type)
+      const list = this.categories.filter(c => c.type === this.form.type || c.name === '其他')
+      return list.sort((a, b) => (a.name === '其他') - (b.name === '其他'))
     },
     canSubmit() {
       return this.form.amount > 0 && this.form.category && this.form.date
@@ -176,18 +172,16 @@ export default {
         console.error(e)
       }
     },
-    async aiClassify() {
+    aiClassify() {
+      clearTimeout(this._classifyTimer)
       const note = (this.form.note || '').trim()
-      if (!note) return
-      try {
-        const res = await post('/api/ai/classify', { note })
-        if (res.category && res.category !== '其他') {
-          this.aiHint = res.category
-          if (!this.form.category) {
-            this.form.category = res.category
-          }
-        }
-      } catch (e) { /* ignore */ }
+      if (!note || note.length < 2) { this.form.category = '其他'; return }
+      this._classifyTimer = setTimeout(async () => {
+        try {
+          const res = await post('/api/ai/classify', { note })
+          this.form.category = (res.category && res.category !== '其他') ? res.category : '其他'
+        } catch (e) { this.form.category = '其他' }
+      }, 600)
     },
     async submitRecord() {
       if (!this.canSubmit) return
@@ -200,7 +194,6 @@ export default {
         this.form.amount = ''
         this.form.note = ''
         this.form.category = ''
-        this.aiHint = ''
         uni.switchTab({ url: '/pages/home/home' })
       } catch (e) {
         uni.showToast({ title: '保存失败', icon: 'none' })
@@ -365,16 +358,6 @@ export default {
   border-radius: 12rpx;
   padding: 0 20rpx;
   font-size: 28rpx;
-}
-.ai-hint {
-  margin-top: 12rpx;
-  font-size: 24rpx;
-  color: #999;
-}
-.ai-hint-cat {
-  color: #667eea;
-  font-weight: bold;
-  text-decoration: underline;
 }
 .date-picker {
   height: 72rpx;

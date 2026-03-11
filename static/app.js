@@ -14,7 +14,6 @@ createApp({
         const categories = ref([]);
         const stats = ref({ income_total: 0, expense_total: 0, income_categories: [], expense_categories: [] });
         const trendData = ref([]);
-        const aiHint = ref('');
         const importResult = ref(null);
         const reportText = ref('');
         const reportLoading = ref(false);
@@ -59,9 +58,10 @@ createApp({
             return records.value.slice(start, start + pageSize);
         });
 
-        const filteredCategories = computed(() =>
-            categories.value.filter(c => c.type === form.value.type || c.name === '其他')
-        );
+        const filteredCategories = computed(() => {
+            const list = categories.value.filter(c => c.type === form.value.type || c.name === '其他');
+            return list.sort((a, b) => (a.name === '其他') - (b.name === '其他'));
+        });
 
         const canSubmit = computed(() =>
             form.value.amount > 0 && form.value.category && form.value.date
@@ -167,7 +167,6 @@ createApp({
             form.value.amount = null;
             form.value.note = '';
             form.value.category = '';
-            aiHint.value = '';
             await loadAll();
             tab.value = 'home';
         }
@@ -182,16 +181,12 @@ createApp({
         function aiClassify() {
             clearTimeout(_classifyTimer);
             const note = form.value.note.trim();
-            if (!note || note.length < 2) { aiHint.value = ''; return; }
+            if (!note || note.length < 2) { form.value.category = '其他'; return; }
             _classifyTimer = setTimeout(async () => {
                 try {
                     const res = await api('POST', '/api/ai/classify', { note });
-                    if (res.category && res.category !== '其他') {
-                        aiHint.value = res.category;
-                    } else {
-                        aiHint.value = '';
-                    }
-                } catch (e) { /* ignore */ }
+                    form.value.category = (res.category && res.category !== '其他') ? res.category : '其他';
+                } catch (e) { form.value.category = '其他'; }
             }, 600);
         }
 
@@ -234,18 +229,36 @@ createApp({
             currentMonth.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
 
-        // AI Report
+        // AI Report (SSE streaming via fetch)
         async function generateReport() {
             reportLoading.value = true;
             reportText.value = '';
             try {
-                const res = await api('GET', `/api/ai/report?month=${currentMonth.value}`);
-                reportText.value = res.report || '报告生成失败';
-            } catch (e) {
-                reportText.value = '网络错误，请稍后重试';
-            } finally {
-                reportLoading.value = false;
-            }
+                const res = await fetch(`/api/ai/report/stream?month=${currentMonth.value}`);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => null);
+                    reportText.value = err?.error || '生成失败，请重试';
+                    reportLoading.value = false;
+                    return;
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop();
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        try { reportText.value += JSON.parse(data); } catch (_) { reportText.value += data; }
+                    }
+                }
+            } catch (e) { if (!reportText.value) reportText.value = '网络错误，请重试'; }
+            finally { reportLoading.value = false; }
         }
 
         function renderMarkdown(text) {
@@ -255,14 +268,35 @@ createApp({
                 .replace(/\n/g, '<br>');
         }
 
-        // 消费画像
+        // 消费画像 (SSE streaming via fetch)
         async function generateProfile() {
             profileLoading.value = true;
             profileText.value = '';
             try {
-                const res = await api('GET', '/api/ai/profile');
-                profileText.value = res.profile || '画像生成失败';
-            } catch (e) { profileText.value = '网络错误'; }
+                const res = await fetch('/api/ai/profile/stream');
+                if (!res.ok) {
+                    const err = await res.json().catch(() => null);
+                    profileText.value = err?.error || '生成失败，请重试';
+                    profileLoading.value = false;
+                    return;
+                }
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buf = '';
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buf += decoder.decode(value, { stream: true });
+                    const lines = buf.split('\n');
+                    buf = lines.pop();
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6);
+                        if (data === '[DONE]') continue;
+                        try { profileText.value += JSON.parse(data); } catch (_) { profileText.value += data; }
+                    }
+                }
+            } catch (e) { if (!profileText.value) profileText.value = '网络错误，请重试'; }
             finally { profileLoading.value = false; }
         }
 
@@ -404,7 +438,7 @@ createApp({
 
         return {
             user, authMode, authForm, authError, submitAuth, doLogout,
-            tab, records, categories, stats, trendData, form, aiHint, importResult,
+            tab, records, categories, stats, trendData, form, importResult,
             reportText, reportLoading, generateReport, renderMarkdown,
             profileText, profileLoading, generateProfile,
             alerts, budgetInfo, budgetAmount, budgetAdviceText, budgetAdviceLoading,

@@ -1,3 +1,4 @@
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -7,14 +8,15 @@ import jwt
 from fastapi import FastAPI, Query, UploadFile, File, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from itsdangerous import URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import func
 
 from models import SessionLocal, User, Record, Category, Budget, init_db
-from ai import (classify, generate_report, smart_parse, detect_anomalies,
-                budget_advice, chat_query, spending_profile)
+from ai import (classify, generate_report, stream_report, smart_parse,
+                detect_anomalies, budget_advice, chat_query,
+                spending_profile, stream_profile)
 from bill_parser import parse_alipay_csv, parse_wechat_csv, parse_excel
 
 SECRET_KEY = "bookkeeper-secret-key-2026"
@@ -85,6 +87,23 @@ def get_current_user(request: Request):
 def require_user(request: Request):
     """要求登录，未登录返回 None（由路由返回 401）"""
     return get_current_user(request)
+
+
+# --- AI 限流：每用户每分钟 1 次 ---
+_ai_rate: dict[int, float] = {}  # user_id → last_call_timestamp
+_AI_RATE_LIMIT = 60  # 秒
+
+
+def check_ai_rate(user_id: int) -> str | None:
+    """检查 AI 限流，通过返回 None，被限返回提示文本"""
+    import time
+    now = time.time()
+    last = _ai_rate.get(user_id, 0)
+    if now - last < _AI_RATE_LIMIT:
+        wait = int(_AI_RATE_LIMIT - (now - last))
+        return f"AI 功能每分钟限用 1 次，请 {wait} 秒后再试"
+    _ai_rate[user_id] = now
+    return None
 
 
 def set_session_cookie(response: Response, user_id: int):
@@ -310,6 +329,9 @@ async def ai_report(request: Request, month: str = Query(...)):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    msg = check_ai_rate(user.id)
+    if msg:
+        return JSONResponse({"error": msg}, 429)
     db = SessionLocal()
     # 获取月度统计
     rows = (
@@ -346,6 +368,54 @@ async def ai_report(request: Request, month: str = Query(...)):
         record_count,
     )
     return {"report": report, "month": month}
+
+
+@app.get("/api/ai/report/stream")
+async def ai_report_stream(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    msg = check_ai_rate(user.id)
+    if msg:
+        return JSONResponse({"error": msg}, 429)
+    db = SessionLocal()
+    rows = (
+        db.query(Record.type, Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id, Record.date.like(f"{month}%"))
+        .group_by(Record.type, Record.category)
+        .all()
+    )
+    record_count = db.query(Record).filter(
+        Record.user_id == user.id, Record.date.like(f"{month}%")
+    ).count()
+    db.close()
+
+    income_total = expense_total = 0.0
+    income_cats, expense_cats = [], []
+    for type_, cat, total in rows:
+        if type_ == "income":
+            income_total += total
+            income_cats.append({"category": cat, "amount": round(total, 2)})
+        else:
+            expense_total += total
+            expense_cats.append({"category": cat, "amount": round(total, 2)})
+
+    if record_count == 0:
+        async def empty():
+            yield f"data: 本月暂无交易记录，无法生成报告。\n\ndata: [DONE]\n\n"
+        return StreamingResponse(empty(), media_type="text/event-stream")
+
+    async def gen():
+        async for token in stream_report(
+            month, round(income_total, 2), round(expense_total, 2),
+            sorted(income_cats, key=lambda x: -x["amount"]),
+            sorted(expense_cats, key=lambda x: -x["amount"]),
+            record_count,
+        ):
+            yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 # --- 智能记账 ---
@@ -543,6 +613,9 @@ async def ai_profile(request: Request):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    msg = check_ai_rate(user.id)
+    if msg:
+        return JSONResponse({"error": msg}, 429)
     db = SessionLocal()
 
     rows = (db.query(
@@ -572,6 +645,50 @@ async def ai_profile(request: Request):
 
     profile = await spending_profile(months_data)
     return {"profile": profile}
+
+
+@app.get("/api/ai/profile/stream")
+async def ai_profile_stream(request: Request):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    msg = check_ai_rate(user.id)
+    if msg:
+        return JSONResponse({"error": msg}, 429)
+    db = SessionLocal()
+    rows = (db.query(
+        func.substr(Record.date, 1, 7).label("month"),
+        Record.type, Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id)
+        .group_by("month", Record.type, Record.category)
+        .all())
+    db.close()
+
+    if not rows:
+        async def empty():
+            yield f"data: {json.dumps('暂无足够数据生成画像，请多记几个月的账。', ensure_ascii=False)}\n\ndata: [DONE]\n\n"
+        return StreamingResponse(empty(), media_type="text/event-stream")
+
+    months_map = {}
+    for month, type_, cat, total in rows:
+        if month not in months_map:
+            months_map[month] = {"month": month, "income": 0, "expense": 0, "expense_cats": []}
+        if type_ == "income":
+            months_map[month]["income"] += total
+        else:
+            months_map[month]["expense"] += total
+            months_map[month]["expense_cats"].append({"category": cat, "amount": round(total, 2)})
+
+    months_data = sorted(months_map.values(), key=lambda x: x["month"], reverse=True)[:6]
+    for m in months_data:
+        m["expense_cats"].sort(key=lambda x: -x["amount"])
+
+    async def gen():
+        async for token in stream_profile(months_data):
+            yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.post("/api/import")
