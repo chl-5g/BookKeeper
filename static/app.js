@@ -231,16 +231,14 @@ createApp({
             currentMonth.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
 
-        // AI Report (SSE streaming via fetch)
-        async function generateReport() {
-            reportLoading.value = true;
-            reportText.value = '';
+        async function readSSEStream(url, textRef, loadingRef) {
+            loadingRef.value = true;
+            textRef.value = '';
             try {
-                const res = await fetch(`/api/ai/report/stream?month=${currentMonth.value}`);
+                const res = await fetch(url);
                 if (!res.ok) {
                     const err = await res.json().catch(() => null);
-                    reportText.value = err?.error || '生成失败，请重试';
-                    reportLoading.value = false;
+                    textRef.value = err?.error || '生成失败，请重试';
                     return;
                 }
                 const reader = res.body.getReader();
@@ -256,11 +254,15 @@ createApp({
                         if (!line.startsWith('data: ')) continue;
                         const data = line.slice(6);
                         if (data === '[DONE]') continue;
-                        try { reportText.value += JSON.parse(data); } catch (_) { reportText.value += data; }
+                        try { textRef.value += JSON.parse(data); } catch (_) { textRef.value += data; }
                     }
                 }
-            } catch (e) { if (!reportText.value) reportText.value = '网络错误，请重试'; }
-            finally { reportLoading.value = false; }
+            } catch (e) { if (!textRef.value) textRef.value = '网络错误，请重试'; }
+            finally { loadingRef.value = false; }
+        }
+
+        function generateReport() {
+            return readSSEStream(`/api/ai/report/stream?month=${currentMonth.value}`, reportText, reportLoading);
         }
 
         function renderMarkdown(text) {
@@ -270,36 +272,8 @@ createApp({
                 .replace(/\n/g, '<br>');
         }
 
-        // 消费画像 (SSE streaming via fetch)
-        async function generateProfile() {
-            profileLoading.value = true;
-            profileText.value = '';
-            try {
-                const res = await fetch('/api/ai/profile/stream');
-                if (!res.ok) {
-                    const err = await res.json().catch(() => null);
-                    profileText.value = err?.error || '生成失败，请重试';
-                    profileLoading.value = false;
-                    return;
-                }
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let buf = '';
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buf += decoder.decode(value, { stream: true });
-                    const lines = buf.split('\n');
-                    buf = lines.pop();
-                    for (const line of lines) {
-                        if (!line.startsWith('data: ')) continue;
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
-                        try { profileText.value += JSON.parse(data); } catch (_) { profileText.value += data; }
-                    }
-                }
-            } catch (e) { if (!profileText.value) profileText.value = '网络错误，请重试'; }
-            finally { profileLoading.value = false; }
+        function generateProfile() {
+            return readSSEStream('/api/ai/profile/stream', profileText, profileLoading);
         }
 
         // 智能记账

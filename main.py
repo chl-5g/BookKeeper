@@ -13,6 +13,8 @@ from itsdangerous import URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import func
 
+SSE_MEDIA_TYPE = "text/event-stream"
+
 from models import SessionLocal, User, Record, Category, Budget, init_db
 from ai import (classify, generate_report, stream_report, smart_parse,
                 detect_anomalies, budget_advice, chat_query,
@@ -303,7 +305,11 @@ def trend_stats(request: Request, months: int = Query(6)):
         if month not in data:
             data[month] = {"month": month, "income": 0, "expense": 0}
         data[month][type_] = round(total, 2)
-    result = sorted(data.values(), key=lambda x: x["month"])
+    # 过滤掉收支都为0的月份
+    result = sorted(
+        [d for d in data.values() if d["income"] > 0 or d["expense"] > 0],
+        key=lambda x: x["month"]
+    )
     return result[-months:] if len(result) > months else result
 
 
@@ -406,7 +412,7 @@ async def ai_report_stream(request: Request, month: str = Query(...)):
     if record_count == 0:
         async def empty():
             yield f"data: 本月暂无交易记录，无法生成报告。\n\ndata: [DONE]\n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
+        return StreamingResponse(empty(), media_type=SSE_MEDIA_TYPE)
 
     async def gen():
         async for token in stream_report(
@@ -418,7 +424,7 @@ async def ai_report_stream(request: Request, month: str = Query(...)):
             yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(gen(), media_type=SSE_MEDIA_TYPE)
 
 
 # --- 智能记账 ---
@@ -533,24 +539,59 @@ def set_budget(request: Request, data: BudgetSet):
     return {"ok": True}
 
 
+def _aggregate_monthly(rows, cat_rows):
+    """将 DB 行聚合为月度收支和分类字典"""
+    months = {}
+    for month, type_, total in rows:
+        if month not in months:
+            months[month] = {"income": 0.0, "expense": 0.0}
+        months[month][type_] += total
+    month_cats = {}
+    for month, cat, total in cat_rows:
+        if month not in month_cats:
+            month_cats[month] = {}
+        month_cats[month][cat] = round(total, 2)
+    return months, month_cats
+
+
+def _calc_expense_trend(months, recent):
+    """计算支出趋势"""
+    if len(recent) < 3:
+        return "stable"
+    recent_3_avg = sum(months[m]["expense"] for m in recent[:3]) / 3
+    if len(recent) < 5:
+        return "stable"
+    older_avg = sum(months[m]["expense"] for m in recent[2:5]) / len(recent[2:5])
+    if recent_3_avg > older_avg * 1.15:
+        return "rising"
+    if recent_3_avg < older_avg * 0.85:
+        return "falling"
+    return "stable"
+
+
+def _calc_suggested_budget(avg_expense, avg_income, trend):
+    """计算建议预算金额"""
+    base = round(avg_expense, 0)
+    adjusted = round(base * 0.95, 0) if trend == "rising" else base
+    if avg_income > 0:
+        adjusted = min(adjusted, round(avg_income * 0.8, 0))
+    return round(adjusted / 100) * 100
+
+
 @app.get("/api/budget/suggest")
 def suggest_budget(request: Request):
     """基于历史数据计算下月预算建议（纯计算，不调 LLM）"""
-    import calendar
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
 
-    # 查询所有月份的收支汇总
     rows = (db.query(
         func.substr(Record.date, 1, 7).label("month"),
         Record.type, func.sum(Record.amount))
         .filter(Record.user_id == user.id)
         .group_by("month", Record.type)
         .all())
-
-    # 查询各月分类支出（找大头）
     cat_rows = (db.query(
         func.substr(Record.date, 1, 7).label("month"),
         Record.category, func.sum(Record.amount))
@@ -562,109 +603,47 @@ def suggest_budget(request: Request):
     if not rows:
         return {"error": "暂无历史数据，无法生成建议"}
 
-    # 按月汇总
-    months = {}
-    for month, type_, total in rows:
-        if month not in months:
-            months[month] = {"income": 0.0, "expense": 0.0}
-        months[month][type_] += total
+    months, month_cats = _aggregate_monthly(rows, cat_rows)
 
-    # 按月分类汇总
-    month_cats = {}
-    for month, cat, total in cat_rows:
-        if month not in month_cats:
-            month_cats[month] = {}
-        month_cats[month][cat] = round(total, 2)
-
-    # 取最近 3-6 个月（排除当月，可能不完整）
     today = datetime.now()
     current_month = today.strftime("%Y-%m")
-    sorted_months = sorted([m for m in months.keys() if m < current_month], reverse=True)
+    # 只取收支不全为0的月份
+    sorted_months = sorted(
+        [m for m in months if m < current_month and (months[m]["income"] > 0 or months[m]["expense"] > 0)],
+        reverse=True
+    )
+    recent = (sorted_months or [current_month])[:6]
 
-    if not sorted_months:
-        # 只有当月数据
-        sorted_months = [current_month]
-
-    recent = sorted_months[:6]
-
-    # 计算月均收入和支出
     avg_income = sum(months[m]["income"] for m in recent) / len(recent)
     avg_expense = sum(months[m]["expense"] for m in recent) / len(recent)
     avg_saving_rate = (avg_income - avg_expense) / avg_income if avg_income > 0 else 0
+    trend = _calc_expense_trend(months, recent)
 
-    # 计算支出趋势（最近 3 个月 vs 更早）
-    trend = "stable"
-    if len(recent) >= 3:
-        recent_3_avg = sum(months[m]["expense"] for m in recent[:3]) / 3
-        if len(recent) >= 5:
-            older_avg = sum(months[m]["expense"] for m in recent[2:5]) / len(recent[2:5])
-            if recent_3_avg > older_avg * 1.15:
-                trend = "rising"
-            elif recent_3_avg < older_avg * 0.85:
-                trend = "falling"
-
-    # 分类支出月均（找大头）
     all_cats = {}
     for m in recent:
         for cat, amt in month_cats.get(m, {}).items():
-            if cat not in all_cats:
-                all_cats[cat] = []
-            all_cats[cat].append(amt)
+            all_cats.setdefault(cat, []).append(amt)
     top_cats = sorted(
         [{"category": c, "avg": round(sum(v)/len(v), 0), "months": len(v)}
          for c, v in all_cats.items()],
         key=lambda x: -x["avg"]
     )[:5]
 
-    # 计算建议预算
-    # 基础：月均支出
-    base = round(avg_expense, 0)
+    suggested = _calc_suggested_budget(avg_expense, avg_income, trend)
+    next_month = f"{today.year + 1}-01" if today.month == 12 else f"{today.year}-{today.month + 1:02d}"
 
-    # 趋势调整
-    if trend == "rising":
-        adjusted = round(base * 0.95, 0)  # 支出上升趋势，收紧 5%
-    elif trend == "falling":
-        adjusted = round(base * 1.0, 0)   # 支出下降，维持
-    else:
-        adjusted = base
-
-    # 如果有收入数据，确保建议预算不超过月均收入的 80%
-    if avg_income > 0:
-        ceiling = round(avg_income * 0.8, 0)
-        suggested = min(adjusted, ceiling)
-    else:
-        suggested = adjusted
-
-    # 取整到百
-    suggested = round(suggested / 100) * 100
-
-    # 下个月是哪个月
-    if today.month == 12:
-        next_month = f"{today.year + 1}-01"
-    else:
-        next_month = f"{today.year}-{today.month + 1:02d}"
-
-    # 生成建议文本
-    lines = []
-    lines.append(f"基于近 {len(recent)} 个月的数据分析：")
-    lines.append(f"- 月均收入：{avg_income:.0f} 元，月均支出：{avg_expense:.0f} 元，储蓄率：{avg_saving_rate*100:.0f}%")
-
-    if trend == "rising":
-        lines.append("- 支出趋势：**上升**，建议适当收紧预算")
-    elif trend == "falling":
-        lines.append("- 支出趋势：**下降**，消费控制得不错")
-    else:
-        lines.append("- 支出趋势：**平稳**")
-
+    trend_text = {"rising": "**上升**，建议适当收紧预算", "falling": "**下降**，消费控制得不错"}.get(trend, "**平稳**")
+    lines = [
+        f"基于近 {len(recent)} 个月的数据分析：",
+        f"- 月均收入：{avg_income:.0f} 元，月均支出：{avg_expense:.0f} 元，储蓄率：{avg_saving_rate*100:.0f}%",
+        f"- 支出趋势：{trend_text}",
+    ]
     if top_cats:
         cats_str = "、".join(f"{c['category']}{c['avg']:.0f}元" for c in top_cats[:3])
         lines.append(f"- 主要支出：{cats_str}")
-
     lines.append(f"\n**建议 {next_month} 预算：{suggested:.0f} 元**")
-
     if avg_income > 0 and suggested < avg_expense:
-        save_extra = round(avg_expense - suggested, 0)
-        lines.append(f"比月均支出少 {save_extra:.0f} 元，每月可多存下这笔钱")
+        lines.append(f"比月均支出少 {round(avg_expense - suggested, 0):.0f} 元，每月可多存下这笔钱")
 
     return {
         "month": next_month,
@@ -815,7 +794,7 @@ async def ai_profile_stream(request: Request):
     if not rows:
         async def empty():
             yield f"data: {json.dumps('暂无足够数据生成画像，请多记几个月的账。', ensure_ascii=False)}\n\ndata: [DONE]\n\n"
-        return StreamingResponse(empty(), media_type="text/event-stream")
+        return StreamingResponse(empty(), media_type=SSE_MEDIA_TYPE)
 
     months_map = {}
     for month, type_, cat, total in rows:
@@ -836,7 +815,7 @@ async def ai_profile_stream(request: Request):
             yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(gen(), media_type=SSE_MEDIA_TYPE)
 
 
 @app.post("/api/import")

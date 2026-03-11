@@ -292,17 +292,35 @@ _DATE_PATTERNS = {
 }
 
 
+def _parse_date(text: str) -> str:
+    """从文本中解析日期，返回 YYYY-MM-DD 格式"""
+    today = datetime.now()
+    for keyword, delta in _DATE_PATTERNS.items():
+        if keyword in text:
+            return (today + timedelta(days=delta)).strftime("%Y-%m-%d")
+    date_match = re.search(r'(\d{1,2})[月/\-](\d{1,2})[日号]?', text)
+    if date_match:
+        month, day = int(date_match.group(1)), int(date_match.group(2))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{today.year}-{month:02d}-{day:02d}"
+    return today.strftime("%Y-%m-%d")
+
+
+def _extract_note(text: str) -> str:
+    """提取备注（去掉金额和日期相关词）"""
+    note = re.sub(r'\d+(?:\.\d{1,2})?[元块]?', '', text)
+    for kw in list(_DATE_PATTERNS.keys()) + ["元", "块", "花了", "花", "用了", "用", "付了", "付", "收到", "收了"]:
+        note = note.replace(kw, '')
+    return note.strip() or text
+
+
 async def smart_parse(text: str) -> dict:
     """解析自然语言记账（纯正则，不调 LLM）"""
-    today = datetime.now()
-    today_str = today.strftime("%Y-%m-%d")
-
     if not text or not text.strip():
         return {"error": "请输入记账内容"}
 
     text = text.strip()
 
-    # 提取金额
     amount_match = re.search(r'(\d+(?:\.\d{1,2})?)', text)
     if not amount_match:
         return {"error": "无法识别金额"}
@@ -310,37 +328,9 @@ async def smart_parse(text: str) -> dict:
     if amount <= 0:
         return {"error": "金额必须大于0"}
 
-    # 判断收入/支出
-    record_type = "expense"
-    for kw in _INCOME_KEYWORDS:
-        if kw in text:
-            record_type = "income"
-            break
-
-    # 提取日期
-    date_str = today_str
-    for keyword, delta in _DATE_PATTERNS.items():
-        if keyword in text:
-            date_str = (today + timedelta(days=delta)).strftime("%Y-%m-%d")
-            break
-    # 匹配 MM-DD 或 M月D日
-    date_match = re.search(r'(\d{1,2})[月/\-](\d{1,2})[日号]?', text)
-    if date_match:
-        month = int(date_match.group(1))
-        day = int(date_match.group(2))
-        if 1 <= month <= 12 and 1 <= day <= 31:
-            date_str = f"{today.year}-{month:02d}-{day:02d}"
-
-    # 提取备注（去掉金额和日期相关词）
-    note = text
-    note = re.sub(r'\d+(?:\.\d{1,2})?[元块]?', '', note)
-    for kw in list(_DATE_PATTERNS.keys()) + ["元", "块", "花了", "花", "用了", "用", "付了", "付", "收到", "收了"]:
-        note = note.replace(kw, '')
-    note = note.strip()
-    if not note:
-        note = text
-
-    # 分类
+    record_type = "income" if any(kw in text for kw in _INCOME_KEYWORDS) else "expense"
+    date_str = _parse_date(text)
+    note = _extract_note(text)
     category = await classify(note)
 
     return {
@@ -521,6 +511,81 @@ def _parse_target_cat(q: str) -> str | None:
     return None
 
 
+def _query_by_category(filtered, target_cat, scope):
+    """回答分类相关查询"""
+    expenses = [r for r in filtered if r["type"] == "expense"]
+    incomes = [r for r in filtered if r["type"] == "income"]
+    if expenses:
+        total = sum(r["amount"] for r in expenses)
+        lines = [f"**{scope}**「{target_cat}」共支出 **{total:.2f} 元**，{len(expenses)} 笔："]
+        for r in sorted(expenses, key=lambda x: x["date"])[-10:]:
+            note = f"（{r['note']}）" if r["note"] else ""
+            lines.append(f"  {r['date'][5:]} {r['amount']:.2f} 元{note}")
+        if len(expenses) > 10:
+            lines.append(f"  ...共 {len(expenses)} 笔，仅显示最近 10 笔")
+        return "\n".join(lines)
+    if incomes:
+        total = sum(r["amount"] for r in incomes)
+        return f"**{scope}**「{target_cat}」共收入 **{total:.2f} 元**，{len(incomes)} 笔。"
+    return f"{scope} 没有找到「{target_cat}」相关的记录。"
+
+
+def _query_month_overview(filtered, target_month):
+    """回答月度概览查询"""
+    if not filtered:
+        return f"{target_month} 没有记录。"
+    income = sum(r["amount"] for r in filtered if r["type"] == "income")
+    expense = sum(r["amount"] for r in filtered if r["type"] == "expense")
+    cat_totals = defaultdict(float)
+    for r in filtered:
+        if r["type"] == "expense":
+            cat_totals[r["category"]] += r["amount"]
+    lines = [f"**{target_month}** 收入 {income:.2f} 元，支出 {expense:.2f} 元，结余 {income - expense:.2f} 元。"]
+    if cat_totals:
+        lines.append("支出分类：")
+        for cat, amt in sorted(cat_totals.items(), key=lambda x: -x[1])[:8]:
+            lines.append(f"  {cat}：{amt:.2f} 元")
+    return "\n".join(lines)
+
+
+def _query_top_month(records, record_type):
+    """回答'哪个月花钱/收入最多'"""
+    by_month = defaultdict(float)
+    for r in records:
+        if r["type"] == record_type:
+            by_month[r["date"][:7]] += r["amount"]
+    if not by_month:
+        return None
+    top = max(by_month.items(), key=lambda x: x[1])
+    label = "支出" if record_type == "expense" else "收入"
+    return f"{label}最多的是 **{top[0]}**，共{label} **{top[1]:.2f} 元**。"
+
+
+def _query_total(records, record_type):
+    """回答总计查询"""
+    total = sum(r["amount"] for r in records if r["type"] == record_type)
+    label = "支出" if record_type == "expense" else "收入"
+    return f"所有记录总{label} **{total:.2f} 元**。"
+
+
+def _query_summary(records):
+    """通用按月汇总（跳过收支都为0的月份）"""
+    by_month = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
+    for r in records:
+        by_month[r["date"][:7]][r["type"]] += r["amount"]
+    lines = ["以下是您的收支汇总："]
+    total_in = total_out = 0.0
+    for m in sorted(by_month.keys(), reverse=True):
+        d = by_month[m]
+        if d["income"] == 0 and d["expense"] == 0:
+            continue
+        lines.append(f"  {m}：收入 {d['income']:.2f} 元，支出 {d['expense']:.2f} 元")
+        total_in += d["income"]
+        total_out += d["expense"]
+    lines.append(f"\n合计：收入 {total_in:.2f} 元，支出 {total_out:.2f} 元，结余 {total_in-total_out:.2f} 元")
+    return "\n".join(lines)
+
+
 async def chat_query(question: str, records: list[dict]) -> str:
     """基于结构化记录数据回答用户问题（纯规则）
     records: [{"date","type","category","amount","note"}, ...]
@@ -532,98 +597,38 @@ async def chat_query(question: str, records: list[dict]) -> str:
     target_month = _parse_target_month(q)
     target_cat = _parse_target_cat(q)
 
-    # 按条件过滤记录
     filtered = records
-    month_label = ""
     if target_month:
         filtered = [r for r in filtered if r["date"].startswith(target_month)]
-        month_label = target_month
     if target_cat:
         filtered = [r for r in filtered if r["category"] == target_cat]
 
-    # 有分类条件：回答分类支出
     if target_cat:
-        expenses = [r for r in filtered if r["type"] == "expense"]
-        incomes = [r for r in filtered if r["type"] == "income"]
-        scope = month_label or "所有记录"
+        return _query_by_category(filtered, target_cat, target_month or "所有记录")
 
-        if expenses:
-            total = sum(r["amount"] for r in expenses)
-            lines = [f"**{scope}**「{target_cat}」共支出 **{total:.2f} 元**，{len(expenses)} 笔："]
-            for r in sorted(expenses, key=lambda x: x["date"])[-10:]:
-                note = f"（{r['note']}）" if r["note"] else ""
-                lines.append(f"  {r['date'][5:]} {r['amount']:.2f} 元{note}")
-            if len(expenses) > 10:
-                lines.append(f"  ...共 {len(expenses)} 笔，仅显示最近 10 笔")
-            return "\n".join(lines)
-        elif incomes:
-            total = sum(r["amount"] for r in incomes)
-            return f"**{scope}**「{target_cat}」共收入 **{total:.2f} 元**，{len(incomes)} 笔。"
-        else:
-            return f"{scope} 没有找到「{target_cat}」相关的记录。"
-
-    # 有月份条件但没分类：回答该月概览
     if target_month:
-        if not filtered:
-            return f"{target_month} 没有记录。"
-        income = sum(r["amount"] for r in filtered if r["type"] == "income")
-        expense = sum(r["amount"] for r in filtered if r["type"] == "expense")
-        balance = income - expense
-        # 分类明细
-        cat_totals = defaultdict(float)
-        for r in filtered:
-            if r["type"] == "expense":
-                cat_totals[r["category"]] += r["amount"]
-        cat_sorted = sorted(cat_totals.items(), key=lambda x: -x[1])
-        lines = [f"**{target_month}** 收入 {income:.2f} 元，支出 {expense:.2f} 元，结余 {balance:.2f} 元。"]
-        if cat_sorted:
-            lines.append("支出分类：")
-            for cat, amt in cat_sorted[:8]:
-                lines.append(f"  {cat}：{amt:.2f} 元")
-        return "\n".join(lines)
+        return _query_month_overview(filtered, target_month)
 
-    # "哪个月花钱最多"
-    if ("哪个月" in q or "哪月" in q) and ("花" in q or "支出" in q or "多" in q):
-        by_month = defaultdict(float)
-        for r in records:
-            if r["type"] == "expense":
-                by_month[r["date"][:7]] += r["amount"]
-        if by_month:
-            top = max(by_month.items(), key=lambda x: x[1])
-            return f"支出最多的是 **{top[0]}**，共支出 **{top[1]:.2f} 元**。"
+    has_month_q = "哪个月" in q or "哪月" in q
+    has_total_q = "总共" in q or "一共" in q or "总" in q
 
-    # "哪个月收入最多"
-    if ("哪个月" in q or "哪月" in q) and "收入" in q:
-        by_month = defaultdict(float)
-        for r in records:
-            if r["type"] == "income":
-                by_month[r["date"][:7]] += r["amount"]
-        if by_month:
-            top = max(by_month.items(), key=lambda x: x[1])
-            return f"收入最多的是 **{top[0]}**，共收入 **{top[1]:.2f} 元**。"
+    if has_month_q and ("花" in q or "支出" in q or "多" in q):
+        result = _query_top_month(records, "expense")
+        if result:
+            return result
 
-    # "总共花了多少"
-    if ("总共" in q or "一共" in q or "总" in q) and ("花" in q or "支出" in q):
-        total = sum(r["amount"] for r in records if r["type"] == "expense")
-        return f"所有记录总支出 **{total:.2f} 元**。"
+    if has_month_q and "收入" in q:
+        result = _query_top_month(records, "income")
+        if result:
+            return result
 
-    if ("总共" in q or "一共" in q or "总" in q) and "收入" in q:
-        total = sum(r["amount"] for r in records if r["type"] == "income")
-        return f"所有记录总收入 **{total:.2f} 元**。"
+    if has_total_q and ("花" in q or "支出" in q):
+        return _query_total(records, "expense")
 
-    # 通用：按月汇总
-    by_month = defaultdict(lambda: {"income": 0.0, "expense": 0.0})
-    for r in records:
-        by_month[r["date"][:7]][r["type"]] += r["amount"]
-    lines = ["以下是您的收支汇总："]
-    total_in = total_out = 0.0
-    for m in sorted(by_month.keys(), reverse=True):
-        d = by_month[m]
-        lines.append(f"  {m}：收入 {d['income']:.2f} 元，支出 {d['expense']:.2f} 元")
-        total_in += d["income"]
-        total_out += d["expense"]
-    lines.append(f"\n合计：收入 {total_in:.2f} 元，支出 {total_out:.2f} 元，结余 {total_in-total_out:.2f} 元")
-    return "\n".join(lines)
+    if has_total_q and "收入" in q:
+        return _query_total(records, "income")
+
+    return _query_summary(records)
 
 
 # ============================================================

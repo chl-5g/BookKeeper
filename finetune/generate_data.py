@@ -29,7 +29,9 @@ NUM_PROFILES = cfg["data"]["num_profiles"]
 
 CATEGORIES = ["餐饮", "交通", "购物", "娱乐", "居住", "医疗", "教育", "通讯", "投资"]
 INCOME_CATS = ["工资", "理财", "红包", "报销", "其他收入"]
-MONTHS = [f"2025-{m:02d}" for m in range(1, 13)] + [f"2026-{m:02d}" for m in range(1, 4)]
+from datetime import datetime as _dt
+_now = _dt.now()
+MONTHS = [f"{_now.year - 1}-{m:02d}" for m in range(1, 13)] + [f"{_now.year}-{m:02d}" for m in range(1, _now.month + 1)]
 
 
 def call_llm(prompt: str, temperature: float = 0.7, max_tokens: int = 800) -> str | None:
@@ -153,7 +155,7 @@ def random_profile_scenario() -> dict:
     start_month = random.randint(1, 10)
     for i in range(num_months):
         m = start_month + i
-        year = 2025 if m <= 12 else 2026
+        year = _now.year - 1 + (m - 1) // 12
         month_str = f"{year}-{((m - 1) % 12 + 1):02d}"
         income = random.randint(3000, 50000)
         expense_ratio = random.uniform(0.3, 1.2)

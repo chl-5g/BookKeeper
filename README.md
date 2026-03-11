@@ -1,4 +1,4 @@
-# BookKeeper 智小账
+# BookKeeper 智小账-AI记账助手
 
 个人智能记账应用，支持手动记账、自然语言智能记账、支付宝/微信账单导入、AI 财务报告、消费画像分析等。后端纯 Python，AI 功能基于本地 ollama 推理，数据完全私有。
 
@@ -46,6 +46,25 @@
     └── src/
         └── pages/       # login / home / add / stats / ai
 ```
+
+## 数据库
+
+SQLite，文件路径：`data/bookkeeper.db`
+
+### 数据表
+
+| 表名 | 说明 | 主要字段 |
+|------|------|----------|
+| `users` | 用户 | id, username, password_hash, created_at |
+| `records` | 收支记录 | id, user_id(FK), type(income/expense), amount, category, note, date(YYYY-MM-DD), created_at |
+| `categories` | 分类 | id, name, type(income/expense), icon |
+| `budgets` | 月度预算 | id, user_id(FK), month(YYYY-MM), amount |
+
+### 表关系
+
+- `records.user_id` → `users.id`
+- `budgets.user_id` → `users.id`
+- `categories` 独立表，初始化时预填默认分类
 
 ## 快速启动
 
