@@ -52,7 +52,7 @@ createApp({
             date: now.toISOString().slice(0, 10),
         });
 
-        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计', ai: 'AI记账助手' }[tab.value]));
+        const pageTitle = computed(() => ({ home: '智小账-AI记账助手', add: '记一笔', stats: '统计', ai: 'AI记账助手' }[tab.value]));
 
         const totalPages = computed(() => Math.max(1, Math.ceil(records.value.length / pageSize)));
         const pagedRecords = computed(() => {

@@ -90,12 +90,15 @@ def require_user(request: Request):
 
 
 # --- AI 限流：每用户每分钟 1 次 ---
+AI_RATE_LIMIT_ENABLED = os.environ.get("BK_RATE_LIMIT", "1") == "1"  # 0=关闭(测试), 1=开启(生产)
 _ai_rate: dict[int, float] = {}  # user_id → last_call_timestamp
 _AI_RATE_LIMIT = 60  # 秒
 
 
 def check_ai_rate(user_id: int) -> str | None:
     """检查 AI 限流，通过返回 None，被限返回提示文本"""
+    if not AI_RATE_LIMIT_ENABLED:
+        return None
     import time
     now = time.time()
     last = _ai_rate.get(user_id, 0)
