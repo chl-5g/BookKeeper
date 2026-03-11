@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>记账本</title>
+    <title>智小账</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div id="app">
     <!-- 登录/注册页 -->
     <div v-if="!user" class="auth-page">
-        <div class="auth-logo">记账本</div>
+        <div class="auth-logo">智小账</div>
         <div class="card auth-card">
             <div class="type-switch">
                 <button :class="{'active-income': authMode === 'login'}" @click="authMode='login'">登录</button>

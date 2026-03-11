@@ -28,7 +28,7 @@ createApp({
             date: now.toISOString().slice(0, 10),
         });
 
-        const pageTitle = computed(() => ({ home: '记账本', add: '记一笔', stats: '统计' }[tab.value]));
+        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计' }[tab.value]));
 
         const filteredCategories = computed(() =>
             categories.value.filter(c => c.type === form.value.type)

@@ -1,4 +1,4 @@
-# BookKeeper 记账本
+# BookKeeper 智小账
 
 个人记账应用，支持 AI 自动分类和支付宝/微信账单 CSV 导入。
 

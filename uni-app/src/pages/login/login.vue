@@ -1,7 +1,7 @@
 <template>
   <view class="login-page">
     <view class="logo-area">
-      <text class="app-name">记账本</text>
+      <text class="app-name">智小账</text>
       <text class="app-desc">AI 智能分类 · 轻松管理收支</text>
     </view>
 
