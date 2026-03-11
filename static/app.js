@@ -18,6 +18,20 @@ createApp({
         const importResult = ref(null);
         const reportText = ref('');
         const reportLoading = ref(false);
+        const profileText = ref('');
+        const profileLoading = ref(false);
+        const alerts = ref([]);
+        const budgetInfo = ref({});
+        const budgetAmount = ref(null);
+        const budgetAdviceText = ref('');
+        const budgetAdviceLoading = ref(false);
+        const smartText = ref('');
+        const smartResult = ref(null);
+        const smartError = ref('');
+        const smartLoading = ref(false);
+        const chatQuestion = ref('');
+        const chatAnswer = ref('');
+        const chatLoading = ref(false);
 
         const now = new Date();
         const currentMonth = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
@@ -116,8 +130,16 @@ createApp({
             trendData.value = await api('GET', '/api/stats/trend?months=6');
         }
 
+        async function loadAlerts() {
+            try { alerts.value = (await api('GET', `/api/ai/alerts?month=${currentMonth.value}`)).alerts || []; } catch(e) { alerts.value = []; }
+        }
+
+        async function loadBudgetInfo() {
+            try { budgetInfo.value = await api('GET', `/api/ai/budget-advice?month=${currentMonth.value}`); } catch(e) { budgetInfo.value = {}; }
+        }
+
         async function loadAll() {
-            await Promise.all([loadRecords(), loadStats(), loadTrend()]);
+            await Promise.all([loadRecords(), loadStats(), loadTrend(), loadAlerts(), loadBudgetInfo()]);
         }
 
         // Actions
@@ -192,11 +214,68 @@ createApp({
         }
 
         function renderMarkdown(text) {
-            // 简易 Markdown → HTML
             return text
                 .replace(/### (.+)/g, '<h4 style="color:#667eea;margin:12px 0 6px;">$1</h4>')
                 .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\n/g, '<br>');
+        }
+
+        // 消费画像
+        async function generateProfile() {
+            profileLoading.value = true;
+            profileText.value = '';
+            try {
+                const res = await api('GET', '/api/ai/profile');
+                profileText.value = res.profile || '画像生成失败';
+            } catch (e) { profileText.value = '网络错误'; }
+            finally { profileLoading.value = false; }
+        }
+
+        // 智能记账
+        async function smartAdd() {
+            const t = smartText.value.trim();
+            if (!t) return;
+            smartLoading.value = true; smartError.value = ''; smartResult.value = null;
+            try {
+                const res = await api('POST', '/api/ai/smart-add', { text: t });
+                if (res.error) { smartError.value = res.error; }
+                else if (res.parsed) { smartResult.value = res.parsed; }
+            } catch (e) { smartError.value = '解析失败'; }
+            finally { smartLoading.value = false; }
+        }
+        async function confirmSmartAdd() {
+            if (!smartResult.value) return;
+            await api('POST', '/api/ai/smart-add/confirm', smartResult.value);
+            smartResult.value = null; smartText.value = '';
+            await loadAll();
+        }
+
+        // 账单问答
+        async function askChat() {
+            const q = chatQuestion.value.trim();
+            if (!q) return;
+            chatLoading.value = true; chatAnswer.value = '';
+            try {
+                const res = await api('POST', '/api/ai/chat', { question: q });
+                chatAnswer.value = res.answer || '无法回答';
+            } catch (e) { chatAnswer.value = '网络错误'; }
+            finally { chatLoading.value = false; }
+        }
+
+        // 预算
+        async function setBudget() {
+            if (!budgetAmount.value || budgetAmount.value <= 0) return;
+            await api('POST', '/api/budget', { month: currentMonth.value, amount: budgetAmount.value });
+            await loadBudgetInfo();
+        }
+        async function getBudgetAdvice() {
+            budgetAdviceLoading.value = true; budgetAdviceText.value = '';
+            try {
+                const res = await api('GET', `/api/ai/budget-advice?month=${currentMonth.value}`);
+                budgetAdviceText.value = res.advice || '';
+                budgetInfo.value = res;
+            } catch (e) { budgetAdviceText.value = '获取失败'; }
+            finally { budgetAdviceLoading.value = false; }
         }
 
         // Clear all records
@@ -210,8 +289,10 @@ createApp({
         }
 
         // Charts
-        const RED_SHADES = ['#f44336', '#e53935', '#d32f2f', '#c62828', '#b71c1c', '#ff5252', '#ff1744', '#ef5350', '#e57373', '#ef9a9a'];
-        const GREEN_SHADES = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20', '#66BB6A', '#81C784', '#A5D6A7', '#69F0AE', '#00E676'];
+        // 支出：深色调（暗红/酒红/深橙等）
+        const EXPENSE_COLORS = ['#c62828', '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#bf360c', '#e65100', '#d84315', '#8e2c1a', '#880e4f'];
+        // 收入：浅色调（浅绿/浅蓝/浅紫等）
+        const INCOME_COLORS = ['#81C784', '#80CBC4', '#80DEEA', '#90CAF9', '#CE93D8', '#A5D6A7', '#B2DFDB', '#B3E5FC', '#C5CAE9', '#F0F4C3'];
         let pieChart = null;
         let incomePieChart = null;
         let trendChart = null;
@@ -222,7 +303,7 @@ createApp({
             if (!pieChart) pieChart = echarts.init(el);
             const data = stats.value.expense_categories.map((c, i) => ({
                 name: c.category, value: c.amount,
-                itemStyle: { color: RED_SHADES[i % RED_SHADES.length] }
+                itemStyle: { color: EXPENSE_COLORS[i % EXPENSE_COLORS.length] }
             }));
             pieChart.setOption({
                 tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
@@ -241,7 +322,7 @@ createApp({
             if (!incomePieChart) incomePieChart = echarts.init(el);
             const data = stats.value.income_categories.map((c, i) => ({
                 name: c.category, value: c.amount,
-                itemStyle: { color: GREEN_SHADES[i % GREEN_SHADES.length] }
+                itemStyle: { color: INCOME_COLORS[i % INCOME_COLORS.length] }
             }));
             incomePieChart.setOption({
                 tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
@@ -290,6 +371,11 @@ createApp({
             user, authMode, authForm, authError, submitAuth, doLogout,
             tab, records, categories, stats, trendData, form, aiHint, importResult,
             reportText, reportLoading, generateReport, renderMarkdown,
+            profileText, profileLoading, generateProfile,
+            alerts, budgetInfo, budgetAmount, budgetAdviceText, budgetAdviceLoading,
+            setBudget, getBudgetAdvice,
+            smartText, smartResult, smartError, smartLoading, smartAdd, confirmSmartAdd,
+            chatQuestion, chatAnswer, chatLoading, askChat,
             currentMonth, pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
             changeMonth, switchTab, clearAllRecords,

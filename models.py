@@ -36,6 +36,14 @@ class Category(Base):
     icon = Column(Text, default="")
 
 
+class Budget(Base):
+    __tablename__ = "budgets"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    month = Column(Text, nullable=False)             # YYYY-MM
+    amount = Column(Float, nullable=False)
+
+
 DEFAULT_CATEGORIES = [
     # 支出
     ("餐饮", "expense", "🍜"), ("交通", "expense", "🚗"), ("购物", "expense", "🛒"),

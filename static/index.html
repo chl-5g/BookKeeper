@@ -60,6 +60,24 @@
                     <div class="value">{{ (stats.income_total - stats.expense_total).toFixed(2) }}</div>
                 </div>
             </div>
+            <!-- 异常预警 -->
+            <div v-if="alerts.length" class="card" style="border-left:4px solid #f44336;">
+                <div class="section-title" style="color:#f44336;">消费预警</div>
+                <div v-for="a in alerts" :key="a.message" style="font-size:0.8rem;color:#666;padding:4px 0;line-height:1.6;">
+                    {{ a.type === 'large' ? '💰' : '📈' }} {{ a.message }}
+                </div>
+            </div>
+            <!-- 预算进度 -->
+            <div class="card" v-if="budgetInfo.budget">
+                <div class="section-title">本月预算</div>
+                <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:6px;">
+                    <span>已支出 {{ budgetInfo.expense_total }} / {{ budgetInfo.budget }} 元</span>
+                    <span :style="{color: budgetInfo.remaining < 0 ? '#f44336' : '#4CAF50'}">剩余 {{ budgetInfo.remaining }} 元</span>
+                </div>
+                <div style="background:#eee;border-radius:6px;height:8px;overflow:hidden;">
+                    <div :style="{width: Math.min(budgetInfo.expense_total/budgetInfo.budget*100, 100)+'%', height:'100%', background: budgetInfo.remaining<0?'#f44336':'#4CAF50', borderRadius:'6px', transition:'width 0.3s'}"></div>
+                </div>
+            </div>
             <div class="card ai-banner">
                 <div style="display:flex;align-items:flex-start;gap:12px;">
                     <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-weight:bold;font-size:12px;padding:8px 10px;border-radius:10px;flex-shrink:0;">AI</div>
@@ -182,6 +200,76 @@
                     点击「生成报告」，AI 将分析本月收支数据，提供消费分析和理财建议
                 </div>
             </div>
+            <!-- 消费画像 -->
+            <div class="card">
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>消费习惯画像</span>
+                    <button class="ai-report-btn" @click="generateProfile" :disabled="profileLoading">
+                        {{ profileLoading ? '分析中...' : '生成画像' }}
+                    </button>
+                </div>
+                <div v-if="profileLoading" class="report-loading">
+                    <div class="loading-spinner"></div>
+                    <span>AI 正在分析您的消费习惯...</span>
+                </div>
+                <div v-if="profileText && !profileLoading" class="report-content" v-html="renderMarkdown(profileText)"></div>
+                <div v-if="!profileText && !profileLoading" class="report-placeholder">
+                    分析多月消费数据，生成您的专属消费画像
+                </div>
+            </div>
+        </div>
+
+        <!-- AI 助手 -->
+        <div class="page" :class="{active: tab === 'ai'}">
+            <!-- 智能记账 -->
+            <div class="card">
+                <div class="section-title">智能记账</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入自然语言，AI 自动解析。如："昨天星巴克38"、"工资到账15000"</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" v-model="smartText" placeholder="说一句话记账..." style="flex:1;" @keyup.enter="smartAdd">
+                    <button class="ai-report-btn" @click="smartAdd" :disabled="smartLoading">{{ smartLoading ? '解析中' : '解析' }}</button>
+                </div>
+                <div v-if="smartResult" class="card" style="margin-top:10px;background:#f8f8ff;">
+                    <div style="font-size:0.85rem;line-height:1.8;">
+                        <b>{{ smartResult.type === 'income' ? '收入' : '支出' }}</b> ¥{{ smartResult.amount }}<br>
+                        分类：{{ smartResult.category }}　备注：{{ smartResult.note }}<br>
+                        日期：{{ smartResult.date }}
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="submit-btn" style="flex:1;" @click="confirmSmartAdd">确认记账</button>
+                        <button style="flex:1;background:#eee;color:#666;border:none;border-radius:8px;padding:8px;cursor:pointer;" @click="smartResult=null">取消</button>
+                    </div>
+                </div>
+                <div v-if="smartError" style="color:#f44336;font-size:0.8rem;margin-top:8px;">{{ smartError }}</div>
+            </div>
+            <!-- 账单问答 -->
+            <div class="card">
+                <div class="section-title">账单问答</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">问任何关于你收支的问题，如："这个月吃饭花了多少？""哪个月花钱最多？"</p>
+                <div style="display:flex;gap:8px;">
+                    <input type="text" v-model="chatQuestion" placeholder="问一个问题..." style="flex:1;" @keyup.enter="askChat">
+                    <button class="ai-report-btn" @click="askChat" :disabled="chatLoading">{{ chatLoading ? '思考中' : '提问' }}</button>
+                </div>
+                <div v-if="chatLoading" class="report-loading">
+                    <div class="loading-spinner"></div>
+                    <span>AI 正在查阅您的账单...</span>
+                </div>
+                <div v-if="chatAnswer && !chatLoading" class="report-content" v-html="renderMarkdown(chatAnswer)"></div>
+            </div>
+            <!-- 预算设定 -->
+            <div class="card">
+                <div class="section-title">预算设定（{{ currentMonth }}）</div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="number" v-model.number="budgetAmount" placeholder="输入月预算金额" style="flex:1;" step="100">
+                    <button class="ai-report-btn" @click="setBudget">设定</button>
+                </div>
+                <div v-if="budgetInfo.budget" style="margin-top:10px;">
+                    <button class="ai-report-btn" @click="getBudgetAdvice" :disabled="budgetAdviceLoading" style="width:100%;">
+                        {{ budgetAdviceLoading ? 'AI 分析中...' : 'AI 预算建议' }}
+                    </button>
+                    <div v-if="budgetAdviceText" class="report-content" v-html="renderMarkdown(budgetAdviceText)"></div>
+                </div>
+            </div>
         </div>
 
         <!-- 底部导航 -->
@@ -197,6 +285,10 @@
             <div class="nav-item" :class="{active: tab === 'stats'}" @click="switchTab('stats')">
                 <span class="nav-icon">📊</span>
                 <span>统计</span>
+            </div>
+            <div class="nav-item" :class="{active: tab === 'ai'}" @click="switchTab('ai')">
+                <span class="nav-icon">🤖</span>
+                <span>AI</span>
             </div>
         </div>
     </template>

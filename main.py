@@ -12,8 +12,9 @@ from itsdangerous import URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import func
 
-from models import SessionLocal, User, Record, Category, init_db
-from ai import classify, generate_report
+from models import SessionLocal, User, Record, Category, Budget, init_db
+from ai import (classify, generate_report, smart_parse, detect_anomalies,
+                budget_advice, chat_query, spending_profile)
 from bill_parser import parse_alipay_csv, parse_wechat_csv, parse_excel
 
 SECRET_KEY = "bookkeeper-secret-key-2026"
@@ -343,6 +344,245 @@ async def ai_report(request: Request, month: str = Query(...)):
         record_count,
     )
     return {"report": report, "month": month}
+
+
+# --- 智能记账 ---
+
+class SmartAddRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/ai/smart-add")
+async def ai_smart_add(request: Request, data: SmartAddRequest):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    result = await smart_parse(data.text)
+    if "error" in result:
+        return result
+    # 返回解析结果让前端确认，不直接入库
+    return {"parsed": result}
+
+
+@app.post("/api/ai/smart-add/confirm")
+async def ai_smart_add_confirm(request: Request, data: RecordCreate):
+    """确认智能记账结果并入库"""
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    record = Record(user_id=user.id, type=data.type, amount=data.amount,
+                    category=data.category, note=data.note, date=data.date)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    result = {"id": record.id, "type": record.type, "amount": record.amount,
+              "category": record.category, "note": record.note, "date": record.date}
+    db.close()
+    return result
+
+
+# --- 异常消费预警 ---
+
+@app.get("/api/ai/alerts")
+def get_alerts(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+
+    # 当月记录
+    records = db.query(Record).filter(
+        Record.user_id == user.id, Record.date.like(f"{month}%"),
+        Record.type == "expense"
+    ).all()
+    records_list = [{"amount": r.amount, "category": r.category,
+                     "note": r.note, "date": r.date, "type": r.type} for r in records]
+
+    # 当月分类汇总
+    current_cats = []
+    rows = (db.query(Record.category, func.sum(Record.amount))
+            .filter(Record.user_id == user.id, Record.date.like(f"{month}%"),
+                    Record.type == "expense")
+            .group_by(Record.category).all())
+    for cat, total in rows:
+        current_cats.append({"category": cat, "amount": round(total, 2)})
+
+    # 历史月份分类汇总（排除当月）
+    history_cats = []
+    hist_rows = (db.query(
+        func.substr(Record.date, 1, 7).label("m"), Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id, Record.type == "expense",
+                ~Record.date.like(f"{month}%"))
+        .group_by("m", Record.category).all())
+    for _, cat, total in hist_rows:
+        history_cats.append({"category": cat, "amount": round(total, 2)})
+
+    db.close()
+
+    alerts = detect_anomalies(current_cats, history_cats, records_list)
+    return {"alerts": alerts, "month": month}
+
+
+# --- 预算助手 ---
+
+class BudgetSet(BaseModel):
+    month: str
+    amount: float
+
+
+@app.get("/api/budget")
+def get_budget(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    b = db.query(Budget).filter(Budget.user_id == user.id, Budget.month == month).first()
+    db.close()
+    return {"month": month, "amount": b.amount if b else None}
+
+
+@app.post("/api/budget")
+def set_budget(request: Request, data: BudgetSet):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    b = db.query(Budget).filter(Budget.user_id == user.id, Budget.month == data.month).first()
+    if b:
+        b.amount = data.amount
+    else:
+        db.add(Budget(user_id=user.id, month=data.month, amount=data.amount))
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.get("/api/ai/budget-advice")
+async def get_budget_advice(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    b = db.query(Budget).filter(Budget.user_id == user.id, Budget.month == month).first()
+    if not b:
+        db.close()
+        return {"advice": "请先设定本月预算。"}
+
+    # 月度支出
+    rows = (db.query(Record.category, func.sum(Record.amount))
+            .filter(Record.user_id == user.id, Record.date.like(f"{month}%"),
+                    Record.type == "expense")
+            .group_by(Record.category).all())
+    expense_cats = sorted([{"category": c, "amount": round(t, 2)} for c, t in rows],
+                          key=lambda x: -x["amount"])
+    expense_total = sum(c["amount"] for c in expense_cats)
+
+    # 计算天数
+    year, mon = int(month[:4]), int(month[5:7])
+    today = datetime.now()
+    if today.year == year and today.month == mon:
+        days_passed = today.day
+    else:
+        days_passed = 30
+    import calendar
+    days_total = calendar.monthrange(year, mon)[1]
+
+    db.close()
+
+    advice = await budget_advice(month, b.amount, expense_total, expense_cats,
+                                 days_passed, days_total)
+    return {
+        "advice": advice, "budget": b.amount,
+        "expense_total": round(expense_total, 2),
+        "remaining": round(b.amount - expense_total, 2),
+        "days_passed": days_passed, "days_total": days_total,
+    }
+
+
+# --- 账单问答 ---
+
+class ChatRequest(BaseModel):
+    question: str
+    months: int = 3
+
+
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request, data: ChatRequest):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+
+    # 汇总最近 N 个月的数据
+    records = (db.query(Record)
+               .filter(Record.user_id == user.id)
+               .order_by(Record.date.desc())
+               .limit(500).all())
+    db.close()
+
+    if not records:
+        return {"answer": "暂无记录数据，请先记几笔账。"}
+
+    # 构建摘要
+    by_month = {}
+    for r in records:
+        m = r.date[:7]
+        if m not in by_month:
+            by_month[m] = {"income": 0, "expense": 0, "records": []}
+        by_month[m][r.type] += r.amount
+        if len(by_month[m]["records"]) < 20:
+            by_month[m]["records"].append(f"{r.date} {r.type} {r.category} {r.amount}元 {r.note}")
+
+    summary_parts = []
+    for m in sorted(by_month.keys(), reverse=True)[:data.months]:
+        d = by_month[m]
+        summary_parts.append(
+            f"{m}：收入{d['income']:.2f}元，支出{d['expense']:.2f}元\n"
+            + "\n".join(f"  {x}" for x in d["records"])
+        )
+    summary = "\n\n".join(summary_parts)
+
+    answer = await chat_query(data.question, summary)
+    return {"answer": answer}
+
+
+# --- 消费习惯画像 ---
+
+@app.get("/api/ai/profile")
+async def ai_profile(request: Request):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+
+    rows = (db.query(
+        func.substr(Record.date, 1, 7).label("month"),
+        Record.type, Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id)
+        .group_by("month", Record.type, Record.category)
+        .all())
+    db.close()
+
+    if not rows:
+        return {"profile": "暂无足够数据生成画像，请多记几个月的账。"}
+
+    months_map = {}
+    for month, type_, cat, total in rows:
+        if month not in months_map:
+            months_map[month] = {"month": month, "income": 0, "expense": 0, "expense_cats": []}
+        if type_ == "income":
+            months_map[month]["income"] += total
+        else:
+            months_map[month]["expense"] += total
+            months_map[month]["expense_cats"].append({"category": cat, "amount": round(total, 2)})
+
+    months_data = sorted(months_map.values(), key=lambda x: x["month"], reverse=True)[:6]
+    for m in months_data:
+        m["expense_cats"].sort(key=lambda x: -x["amount"])
+
+    profile = await spending_profile(months_data)
+    return {"profile": profile}
 
 
 @app.post("/api/import")
