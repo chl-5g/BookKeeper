@@ -304,3 +304,81 @@ body {
     transition: background 0.2s;
 }
 .cancel-btn:hover { background: #e0e0e0; }
+
+/* Custom confirm dialog */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: dialogFadeIn 0.2s ease;
+}
+@keyframes dialogFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialogSlideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.dialog-box {
+    background: #fff;
+    border-radius: 16px;
+    width: 300px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    animation: dialogSlideUp 0.25s ease;
+}
+.dialog-body {
+    padding: 28px 24px 20px;
+    text-align: center;
+}
+.dialog-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 14px;
+    font-size: 1.4rem;
+}
+.dialog-icon.warn { background: #fff3e0; }
+.dialog-icon.danger { background: #ffeef0; }
+.dialog-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+.dialog-msg {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.dialog-actions {
+    display: flex;
+    border-top: 1px solid var(--border);
+}
+.dialog-actions button {
+    flex: 1;
+    padding: 14px;
+    border: none;
+    font-size: 0.95rem;
+    cursor: pointer;
+    background: none;
+    transition: background 0.15s;
+}
+.dialog-actions button:first-child {
+    color: var(--text-secondary);
+    border-right: 1px solid var(--border);
+}
+.dialog-actions button:first-child:hover { background: #f5f5f5; }
+.dialog-actions button:last-child {
+    color: #fff;
+    font-weight: 600;
+}
+.dialog-actions button.btn-danger { background: var(--danger); }
+.dialog-actions button.btn-danger:hover { background: #e53935; }
+.dialog-actions button.btn-primary { background: var(--primary); }
+.dialog-actions button.btn-primary:hover { background: #43A047; }

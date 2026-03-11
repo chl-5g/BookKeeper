@@ -1,12 +1,15 @@
 const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
 
-createApp({
+const app = createApp({
     setup() {
         // Auth state
         const user = ref(null);
         const authMode = ref('login');
         const authForm = ref({ username: '', password: '' });
         const authError = ref('');
+
+        // Dialog (from dialog.js)
+        const { dialog, showConfirm, showAlert } = useDialog();
 
         // App state
         const tab = ref('home');
@@ -49,7 +52,7 @@ createApp({
             amount: null,
             category: '',
             note: '',
-            date: now.toISOString().slice(0, 10),
+            date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
         });
 
         const pageTitle = computed(() => ({ home: '智小账-AI记账助手', add: '记一笔', stats: '统计', ai: 'AI记账助手' }[tab.value]));
@@ -174,7 +177,7 @@ createApp({
         }
 
         async function deleteRecord(id) {
-            if (!confirm('确定删除？')) return;
+            if (!await showConfirm({ title: '删除记录', message: '确定要删除这条记录吗？', type: 'danger', confirmText: '删除' })) return;
             await api('DELETE', `/api/records/${id}`);
             await loadAll();
         }
@@ -329,15 +332,16 @@ createApp({
                 const res = await api('GET', '/api/budget/suggest');
                 if (res.error) { suggestText.value = res.error; return; }
                 suggestText.value = res.advice || '';
-                budgetAmount.value = res.suggested;
+                // 仅在用户未手动输入时才自动填入建议值
+                if (!budgetAmount.value) budgetAmount.value = res.suggested;
             } catch (e) { suggestText.value = '获取失败'; }
             finally { suggestLoading.value = false; }
         }
 
         // Clear all records
         async function clearAllRecords() {
-            if (!confirm('确定要清空所有收支记录吗？此操作不可撤销！')) return;
-            if (!confirm('再次确认：删除后无法恢复，确定清空？')) return;
+            if (!await showConfirm({ title: '清空记录', message: '确定要清空所有收支记录吗？此操作不可撤销！', type: 'danger', confirmText: '清空' })) return;
+            if (!await showConfirm({ title: '再次确认', message: '删除后无法恢复，确定清空？', type: 'danger', confirmText: '确定清空' })) return;
             try {
                 await api('DELETE', '/api/records/all');
                 await loadAll();
@@ -424,6 +428,7 @@ createApp({
         onMounted(() => { checkAuth(); });
 
         return {
+            dialog,
             user, authMode, authForm, authError, submitAuth, doLogout,
             tab, records, categories, stats, trendData, form, importResult,
             reportText, reportLoading, generateReport, renderMarkdown,
@@ -440,4 +445,6 @@ createApp({
             changeMonth, switchTab, clearAllRecords, pickFile,
         };
     }
-}).mount('#app');
+});
+app.component('AppDialog', DialogComponent);
+app.mount('#app');

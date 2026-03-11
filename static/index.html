@@ -81,13 +81,6 @@
                     <div v-if="budgetAdviceText" class="report-content" v-html="renderMarkdown(budgetAdviceText)"></div>
                 </div>
             </div>
-            <!-- 异常预警 -->
-            <div v-if="alerts.length" class="card" style="border-left:4px solid #f44336;">
-                <div class="section-title" style="color:#f44336;">消费预警</div>
-                <div v-for="a in alerts" :key="a.message" style="font-size:0.8rem;color:#666;padding:4px 0;line-height:1.6;">
-                    {{ a.type === 'large' ? '💰' : '📈' }} {{ a.message }}
-                </div>
-            </div>
             <!-- 预算进度 -->
             <div class="card" v-if="budgetInfo.budget">
                 <div class="section-title">本月预算</div>
@@ -97,6 +90,13 @@
                 </div>
                 <div style="background:#eee;border-radius:6px;height:8px;overflow:hidden;">
                     <div :style="{width: Math.min(budgetInfo.expense_total/budgetInfo.budget*100, 100)+'%', height:'100%', background: budgetInfo.remaining<0?'#f44336':'#4CAF50', borderRadius:'6px', transition:'width 0.3s'}"></div>
+                </div>
+            </div>
+            <!-- 异常预警 -->
+            <div v-if="alerts.length" class="card" style="border-left:4px solid #f44336;">
+                <div class="section-title" style="color:#f44336;">消费预警</div>
+                <div v-for="a in alerts" :key="a.message" style="font-size:0.8rem;color:#666;padding:4px 0;line-height:1.6;">
+                    {{ a.type === 'large' ? '💰' : '📈' }} {{ a.message }}
                 </div>
             </div>
             <div class="card">
@@ -295,10 +295,14 @@
             </div>
         </div>
     </template>
+
+    <!-- 通用对话框控件 -->
+    <app-dialog :model-value="dialog"></app-dialog>
 </div>
 
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/echarts@5/dist/echarts.min.js"></script>
+<script src="/static/dialog.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
