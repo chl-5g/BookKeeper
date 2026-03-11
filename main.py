@@ -1,8 +1,11 @@
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 import bcrypt
+import jwt
 from fastapi import FastAPI, Query, UploadFile, File, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from itsdangerous import URLSafeSerializer
@@ -17,6 +20,10 @@ SECRET_KEY = "bookkeeper-secret-key-2026"
 COOKIE_NAME = "session"
 serializer = URLSafeSerializer(SECRET_KEY)
 
+JWT_SECRET = SECRET_KEY
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_DAYS = 30
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,11 +34,40 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # --- Auth helpers ---
 
+def create_token(user_id: int) -> str:
+    payload = {
+        "user_id": user_id,
+        "exp": datetime.utcnow() + timedelta(days=JWT_EXPIRE_DAYS),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
 def get_current_user(request: Request):
-    """从 Cookie 解析当前用户，返回 User 或 None"""
+    """从 Bearer Token 或 Cookie 解析当前用户，返回 User 或 None"""
+    # 1. 尝试 Bearer Token（小程序/App）
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            payload = jwt.decode(auth[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            db = SessionLocal()
+            user = db.query(User).filter(User.id == payload["user_id"]).first()
+            db.close()
+            if user:
+                return user
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+            pass
+    # 2. 回退 Cookie（Web）
     cookie = request.cookies.get(COOKIE_NAME)
     if not cookie:
         return None
@@ -91,7 +127,7 @@ def register(data: AuthRequest, response: Response):
     db.refresh(user)
     db.close()
     set_session_cookie(response, user.id)
-    return {"ok": True, "username": user.username}
+    return {"ok": True, "username": user.username, "token": create_token(user.id)}
 
 
 @app.post("/api/login")
@@ -102,7 +138,7 @@ def login(data: AuthRequest, response: Response):
     if not user or not bcrypt.checkpw(data.password.encode(), user.password_hash.encode()):
         return JSONResponse({"error": "用户名或密码错误"}, 401)
     set_session_cookie(response, user.id)
-    return {"ok": True, "username": user.username}
+    return {"ok": True, "username": user.username, "token": create_token(user.id)}
 
 
 @app.post("/api/logout")
@@ -291,6 +327,18 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
     db.commit()
     db.close()
     return {"ok": True, "source": source, "imported": imported, "skipped": skipped}
+
+
+# --- WeChat login stub ---
+
+class WxLoginRequest(BaseModel):
+    code: str
+
+
+@app.post("/api/wx-login")
+async def wx_login(data: WxLoginRequest):
+    """微信小程序登录（桩：暂无 AppID）"""
+    return JSONResponse({"error": "微信登录暂未开通，请使用用户名密码登录"}, 501)
 
 
 # --- Static files ---
