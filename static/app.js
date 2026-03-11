@@ -51,7 +51,7 @@ createApp({
             date: now.toISOString().slice(0, 10),
         });
 
-        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计', ai: 'AI' }[tab.value]));
+        const pageTitle = computed(() => ({ home: '智小账', add: '记一笔', stats: '统计', ai: 'AI记账助手' }[tab.value]));
 
         const totalPages = computed(() => Math.max(1, Math.ceil(records.value.length / pageSize)));
         const pagedRecords = computed(() => {
@@ -154,6 +154,10 @@ createApp({
 
         async function loadAll() {
             await Promise.all([loadRecords(), loadStats(), loadTrend(), loadAlerts(), loadBudgetInfo()]);
+            // 预算未设定时，用本月收入作为初始值
+            if (!budgetInfo.value.budget && !budgetAmount.value && stats.value.income_total > 0) {
+                budgetAmount.value = Math.round(stats.value.income_total);
+            }
         }
 
         // Actions
@@ -216,6 +220,10 @@ createApp({
                 importResult.value = { error: '导入失败：' + e.message };
             }
             event.target.value = '';
+        }
+
+        function pickFile() {
+            document.getElementById('csvFileInput').click();
         }
 
         function changeMonth(delta) {
@@ -367,8 +375,8 @@ createApp({
             const months = trendData.value.map(d => d.month);
             trendChart.setOption({
                 tooltip: { trigger: 'axis' },
-                legend: { data: ['收入', '支出'], bottom: 0 },
-                grid: { top: 10, right: 16, bottom: 36, left: 50 },
+                legend: { data: ['收入', '支出'], top: 0 },
+                grid: { top: 30, right: 16, bottom: 24, left: 50 },
                 xAxis: { type: 'category', data: months },
                 yAxis: { type: 'value' },
                 series: [
@@ -405,7 +413,7 @@ createApp({
             currentMonth, currentPage, totalPages, pagedRecords,
             pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
-            changeMonth, switchTab, clearAllRecords,
+            changeMonth, switchTab, clearAllRecords, pickFile,
         };
     }
 }).mount('#app');

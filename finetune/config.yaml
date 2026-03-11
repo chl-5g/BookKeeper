@@ -1,0 +1,54 @@
+# BookKeeper 记账专用 Qwen3-4B QLoRA 微调配置
+
+model:
+  name: "unsloth/Qwen3-4B-bnb-4bit"
+  max_seq_length: 1024  # 记账输出较短，1024 足够
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.05
+  use_rslora: true
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+training:
+  num_train_epochs: 5
+  batch_size: 2
+  gradient_accumulation_steps: 4  # 有效 batch = 2×4 = 8
+  learning_rate: 2.0e-4
+  warmup_steps: 20
+  lr_scheduler: cosine
+  bf16: true
+  optim: adamw_8bit
+  logging_steps: 10
+  save_steps: 50
+  save_total_limit: 3
+  eval_steps: 50
+  eval_ratio: 0.1  # 10% 验证集（~50 条）
+  early_stopping_patience: 5
+  seed: 42
+
+data:
+  output_file: data/bookkeeper_train.jsonl
+  num_reports: 300
+  num_profiles: 200
+
+ollama:
+  url: http://localhost:11434
+  teacher_model: "qwen3:14b"
+  timeout: 120
+
+export:
+  gguf_method: q4_k_m
+  model_name: bookkeeper-qwen3-4b
+
+paths:
+  data_dir: data
+  output_dir: output

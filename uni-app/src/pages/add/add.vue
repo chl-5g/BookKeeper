@@ -81,7 +81,7 @@
 
       <!-- 导入指南 -->
       <view v-if="showGuide" class="guide-card">
-        <text class="guide-title">如何导出账单文件？</text>
+        <text class="guide-title">如何导入账单文件？</text>
 
         <text class="guide-subtitle">支付宝：</text>
         <text class="guide-step">1. 打开支付宝 → 我的 → 账单</text>

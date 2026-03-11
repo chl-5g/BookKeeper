@@ -516,36 +516,23 @@ async def ai_chat(request: Request, data: ChatRequest):
         return JSONResponse({"error": "未登录"}, 401)
     db = SessionLocal()
 
-    # 汇总最近 N 个月的数据
     records = (db.query(Record)
                .filter(Record.user_id == user.id)
                .order_by(Record.date.desc())
-               .limit(500).all())
+               .limit(1000).all())
     db.close()
 
     if not records:
         return {"answer": "暂无记录数据，请先记几笔账。"}
 
-    # 构建摘要
-    by_month = {}
-    for r in records:
-        m = r.date[:7]
-        if m not in by_month:
-            by_month[m] = {"income": 0, "expense": 0, "records": []}
-        by_month[m][r.type] += r.amount
-        if len(by_month[m]["records"]) < 20:
-            by_month[m]["records"].append(f"{r.date} {r.type} {r.category} {r.amount}元 {r.note}")
+    # 构建结构化数据传给 chat_query
+    records_list = [
+        {"date": r.date, "type": r.type, "category": r.category,
+         "amount": r.amount, "note": r.note or ""}
+        for r in records
+    ]
 
-    summary_parts = []
-    for m in sorted(by_month.keys(), reverse=True)[:data.months]:
-        d = by_month[m]
-        summary_parts.append(
-            f"{m}：收入{d['income']:.2f}元，支出{d['expense']:.2f}元\n"
-            + "\n".join(f"  {x}" for x in d["records"])
-        )
-    summary = "\n\n".join(summary_parts)
-
-    answer = await chat_query(data.question, summary)
+    answer = await chat_query(data.question, records_list)
     return {"answer": answer}
 
 

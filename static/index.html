@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>智小账</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -32,7 +33,7 @@
     <!-- 主界面 -->
     <template v-if="user">
         <div class="header">
-            <span>{{ pageTitle }}</span>
+            <span><img src="/static/favicon.svg" style="width:22px;height:22px;vertical-align:middle;margin-right:4px;margin-top:-2px;">{{ pageTitle }}</span>
             <div class="header-right">
                 <span class="header-user">{{ user }}</span>
                 <button class="header-logout" @click="doLogout">退出</button>
@@ -58,6 +59,20 @@
                 <div class="item">
                     <div class="label">结余</div>
                     <div class="value">{{ (stats.income_total - stats.expense_total).toFixed(2) }}</div>
+                </div>
+            </div>
+            <!-- 预算设定 -->
+            <div class="card">
+                <div class="section-title">本月预算设定</div>
+                <div class="input-row">
+                    <input type="number" v-model.number="budgetAmount" placeholder="输入月预算金额" class="styled-input" step="100">
+                    <button class="styled-btn" @click="setBudget">设定</button>
+                </div>
+                <div v-if="budgetInfo.budget" style="margin-top:10px;">
+                    <button class="styled-btn styled-btn-full" @click="getBudgetAdvice" :disabled="budgetAdviceLoading">
+                        {{ budgetAdviceLoading ? '分析中...' : '预算建议' }}
+                    </button>
+                    <div v-if="budgetAdviceText" class="report-content" v-html="renderMarkdown(budgetAdviceText)"></div>
                 </div>
             </div>
             <!-- 异常预警 -->
@@ -104,29 +119,9 @@
 
         <!-- 记账 -->
         <div class="page" :class="{active: tab === 'add'}">
-            <!-- 智能记账 -->
-            <div class="card">
-                <div class="section-title">智能记账</div>
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入自然语言，AI 自动解析。如："昨天星巴克38"、"工资到账15000"</p>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" v-model="smartText" placeholder="说一句话记账..." style="flex:1;" @keyup.enter="smartAdd">
-                    <button class="ai-report-btn" @click="smartAdd" :disabled="smartLoading">{{ smartLoading ? '解析中' : '解析' }}</button>
-                </div>
-                <div v-if="smartResult" class="card" style="margin-top:10px;background:#f8f8ff;">
-                    <div style="font-size:0.85rem;line-height:1.8;">
-                        <b>{{ smartResult.type === 'income' ? '收入' : '支出' }}</b> ¥{{ smartResult.amount }}<br>
-                        分类：{{ smartResult.category }}　备注：{{ smartResult.note }}<br>
-                        日期：{{ smartResult.date }}
-                    </div>
-                    <div style="display:flex;gap:8px;margin-top:8px;">
-                        <button class="submit-btn" style="flex:1;" @click="confirmSmartAdd">确认记账</button>
-                        <button style="flex:1;background:#eee;color:#666;border:none;border-radius:8px;padding:8px;cursor:pointer;" @click="smartResult=null">取消</button>
-                    </div>
-                </div>
-                <div v-if="smartError" style="color:#f44336;font-size:0.8rem;margin-top:8px;">{{ smartError }}</div>
-            </div>
             <!-- 手动记账 -->
             <div class="card">
+                <div class="section-title">手动记账</div>
                 <div class="type-switch">
                     <button :class="{'active-expense': form.type === 'expense'}" @click="form.type='expense'; form.category=''">支出</button>
                     <button :class="{'active-income': form.type === 'income'}" @click="form.type='income'; form.category=''">收入</button>
@@ -155,11 +150,32 @@
                 </div>
                 <button class="submit-btn" @click="submitRecord" :disabled="!canSubmit">记一笔</button>
             </div>
+            <!-- 智能记账 -->
+            <div class="card">
+                <div class="section-title">智能记账</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入自然语言自动解析，如："昨天星巴克38"、"工资到账15000"</p>
+                <div class="input-row">
+                    <input type="text" v-model="smartText" placeholder="说一句话记账..." class="styled-input" @keyup.enter="smartAdd">
+                    <button class="styled-btn" @click="smartAdd" :disabled="smartLoading">{{ smartLoading ? '解析中' : '解析' }}</button>
+                </div>
+                <div v-if="smartResult" class="smart-result-card">
+                    <div style="font-size:0.85rem;line-height:1.8;">
+                        <b>{{ smartResult.type === 'income' ? '收入' : '支出' }}</b> ¥{{ smartResult.amount }}<br>
+                        分类：{{ smartResult.category }}　备注：{{ smartResult.note }}<br>
+                        日期：{{ smartResult.date }}
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="submit-btn" style="flex:1;" @click="confirmSmartAdd">确认记账</button>
+                        <button class="cancel-btn" @click="smartResult=null">取消</button>
+                    </div>
+                </div>
+                <div v-if="smartError" style="color:#f44336;font-size:0.8rem;margin-top:8px;">{{ smartError }}</div>
+            </div>
             <div class="card">
                 <div class="section-title">导入账单</div>
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">支持支付宝/微信导出的 CSV 和 Excel（xlsx/xls）账单文件</p>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">支持支付宝/微信的 CSV 和 Excel（xlsx/xls）账单文件</p>
                 <details style="font-size:0.8rem;color:#666;margin-bottom:12px;line-height:1.8;">
-                    <summary style="color:#667eea;cursor:pointer;font-weight:bold;">如何导出账单文件？</summary>
+                    <summary style="color:#667eea;cursor:pointer;font-weight:bold;">如何导入账单文件？</summary>
                     <div style="margin-top:8px;padding:10px;background:#f8f8ff;border-radius:8px;">
                         <b style="color:#667eea;">支付宝：</b><br>
                         1. 打开支付宝 → 我的 → 账单<br>
@@ -173,8 +189,8 @@
                         4. 选择时间范围，发送到邮箱后下载
                     </div>
                 </details>
-                <input type="file" accept=".csv,.xlsx,.xls" @change="importCSV" ref="csvInput" style="display:none">
-                <button class="submit-btn" style="background:#1890ff" @click="$refs.csvInput.click()">选择账单文件</button>
+                <input type="file" accept=".csv,.xlsx,.xls" @change="importCSV" id="csvFileInput" style="display:none">
+                <button class="submit-btn" style="background:#1890ff" @click="pickFile">选择账单文件</button>
                 <div v-if="importResult" class="import-result" :class="{error: importResult.error}">
                     {{ importResult.error || `导入成功！来源：${importResult.source === 'alipay' ? '支付宝' : '微信'}，导入 ${importResult.imported} 条，跳过 ${importResult.skipped} 条${importResult.ai_classified ? '，AI 重新分类 ' + importResult.ai_classified + ' 条' : ''}` }}
                 </div>
@@ -200,20 +216,24 @@
                 <div class="section-title">收支趋势</div>
                 <div id="trend-chart" class="chart-container"></div>
             </div>
+            <!-- 账单问答 -->
+            <div class="card">
+                <div class="section-title">账单问答</div>
+                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">如："这个月吃饭花了多少？""哪个月花钱最多？"</p>
+                <div class="input-row">
+                    <input type="text" v-model="chatQuestion" placeholder="问一个问题..." class="styled-input" @keyup.enter="askChat">
+                    <button class="styled-btn" @click="askChat" :disabled="chatLoading">{{ chatLoading ? '思考中' : '提问' }}</button>
+                </div>
+                <div v-if="chatLoading" class="report-loading">
+                    <div class="loading-spinner"></div>
+                    <span>正在查阅您的账单...</span>
+                </div>
+                <div v-if="chatAnswer && !chatLoading" class="report-content" v-html="renderMarkdown(chatAnswer)"></div>
+            </div>
         </div>
 
-        <!-- AI 助手 -->
+        <!-- AI 记账助手 -->
         <div class="page" :class="{active: tab === 'ai'}">
-            <!-- AI 智能分类 -->
-            <div class="card">
-                <div class="section-title">AI 智能分类</div>
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">输入消费描述，AI 自动识别分类</p>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" v-model="classifyText" placeholder="如：腾讯体育VIP续费" style="flex:1;" @keyup.enter="doClassify">
-                    <button class="ai-report-btn" @click="doClassify" :disabled="classifyLoading">{{ classifyLoading ? '识别中' : '识别' }}</button>
-                </div>
-                <div v-if="classifyResult" style="margin-top:8px;font-size:0.85rem;color:#667eea;font-weight:bold;">分类结果：{{ classifyResult }}</div>
-            </div>
             <!-- AI 财务报告 -->
             <div class="card">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -248,34 +268,6 @@
                     分析多月消费数据，生成您的专属消费画像
                 </div>
             </div>
-            <!-- 账单问答 -->
-            <div class="card">
-                <div class="section-title">账单问答</div>
-                <p style="font-size:0.8rem;color:#888;margin-bottom:10px;">问任何关于你收支的问题，如："这个月吃饭花了多少？""哪个月花钱最多？"</p>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" v-model="chatQuestion" placeholder="问一个问题..." style="flex:1;" @keyup.enter="askChat">
-                    <button class="ai-report-btn" @click="askChat" :disabled="chatLoading">{{ chatLoading ? '思考中' : '提问' }}</button>
-                </div>
-                <div v-if="chatLoading" class="report-loading">
-                    <div class="loading-spinner"></div>
-                    <span>AI 正在查阅您的账单...</span>
-                </div>
-                <div v-if="chatAnswer && !chatLoading" class="report-content" v-html="renderMarkdown(chatAnswer)"></div>
-            </div>
-            <!-- 预算设定 -->
-            <div class="card">
-                <div class="section-title">预算设定（{{ currentMonth }}）</div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <input type="number" v-model.number="budgetAmount" placeholder="输入月预算金额" style="flex:1;" step="100">
-                    <button class="ai-report-btn" @click="setBudget">设定</button>
-                </div>
-                <div v-if="budgetInfo.budget" style="margin-top:10px;">
-                    <button class="ai-report-btn" @click="getBudgetAdvice" :disabled="budgetAdviceLoading" style="width:100%;">
-                        {{ budgetAdviceLoading ? 'AI 分析中...' : 'AI 预算建议' }}
-                    </button>
-                    <div v-if="budgetAdviceText" class="report-content" v-html="renderMarkdown(budgetAdviceText)"></div>
-                </div>
-            </div>
         </div>
 
         <!-- 底部导航 -->
@@ -294,7 +286,7 @@
             </div>
             <div class="nav-item" :class="{active: tab === 'ai'}" @click="switchTab('ai')">
                 <span class="nav-icon">🤖</span>
-                <span>AI</span>
+                <span>AI记账助手</span>
             </div>
         </div>
     </template>
