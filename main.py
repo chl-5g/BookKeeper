@@ -296,11 +296,6 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
     raw = await file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("gbk")
-
     filename = (file.filename or "").lower()
     is_excel = filename.endswith((".xlsx", ".xls"))
 
@@ -308,14 +303,20 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
         source, records_data = parse_excel(raw)
         if source is None:
             return {"error": "无法识别的 Excel 账单格式，请上传支付宝或微信导出的账单"}
-    elif "支付宝" in text[:500] or "交易号" in text[:2000]:
-        records_data = parse_alipay_csv(text)
-        source = "alipay"
-    elif "微信" in text[:500] or "交易时间" in text[:2000]:
-        records_data = parse_wechat_csv(text)
-        source = "wechat"
     else:
-        return {"error": "无法识别的账单格式，请上传支付宝或微信的 CSV/Excel 账单"}
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("gbk")
+
+        if "支付宝" in text[:500] or "交易号" in text[:2000]:
+            records_data = parse_alipay_csv(text)
+            source = "alipay"
+        elif "微信" in text[:500] or "交易时间" in text[:2000]:
+            records_data = parse_wechat_csv(text)
+            source = "wechat"
+        else:
+            return {"error": "无法识别的账单格式，请上传支付宝或微信的 CSV/Excel 账单"}
 
     db = SessionLocal()
     imported = 0
