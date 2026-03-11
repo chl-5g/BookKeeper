@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 钱袋身体 -->
+  <ellipse cx="32" cy="40" rx="22" ry="20" fill="#FFD54F"/>
+  <ellipse cx="32" cy="40" rx="22" ry="20" fill="url(#grad)" opacity="0.3"/>
+  <!-- 渐变 -->
+  <defs>
+    <radialGradient id="grad" cx="40%" cy="30%">
+      <stop offset="0%" stop-color="#FFF9C4"/>
+      <stop offset="100%" stop-color="#FFB300"/>
+    </radialGradient>
+  </defs>
+  <!-- 袋口绳结 -->
+  <path d="M20 24 Q26 18 32 22 Q38 18 44 24" fill="none" stroke="#F9A825" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="22" r="3" fill="#F9A825"/>
+  <!-- 萌脸 - 眼睛 -->
+  <circle cx="25" cy="38" r="3" fill="#5D4037"/>
+  <circle cx="39" cy="38" r="3" fill="#5D4037"/>
+  <!-- 眼睛高光 -->
+  <circle cx="26" cy="37" r="1" fill="white"/>
+  <circle cx="40" cy="37" r="1" fill="white"/>
+  <!-- 嘴巴 -->
+  <path d="M28 45 Q32 49 36 45" fill="none" stroke="#5D4037" stroke-width="2" stroke-linecap="round"/>
+  <!-- 腮红 -->
+  <ellipse cx="21" cy="43" rx="4" ry="2.5" fill="#FFAB91" opacity="0.6"/>
+  <ellipse cx="43" cy="43" rx="4" ry="2.5" fill="#FFAB91" opacity="0.6"/>
+  <!-- 钱币符号 -->
+  <text x="32" y="34" text-anchor="middle" font-size="10" font-weight="bold" fill="#F9A825" font-family="sans-serif">&#165;</text>
+</svg>

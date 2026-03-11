@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- 背景渐变 -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4CAF50"/>
+      <stop offset="100%" stop-color="#2E7D32"/>
+    </linearGradient>
+    <!-- 钱袋渐变 -->
+    <radialGradient id="bagGrad" cx="40%" cy="30%">
+      <stop offset="0%" stop-color="#FFF9C4"/>
+      <stop offset="100%" stop-color="#FFB300"/>
+    </radialGradient>
+    <!-- 圆角遮罩 -->
+    <clipPath id="roundClip">
+      <rect width="1024" height="1024" rx="220" ry="220"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#roundClip)">
+    <!-- 背景 -->
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <!-- 装饰圆 -->
+    <circle cx="200" cy="200" r="300" fill="white" opacity="0.05"/>
+    <circle cx="850" cy="800" r="250" fill="white" opacity="0.05"/>
+
+    <!-- 钱袋主体 -->
+    <ellipse cx="512" cy="580" rx="280" ry="260" fill="#FFD54F"/>
+    <ellipse cx="512" cy="580" rx="280" ry="260" fill="url(#bagGrad)" opacity="0.4"/>
+
+    <!-- 袋口绳结 -->
+    <path d="M320 340 Q416 260 512 320 Q608 260 704 340" fill="none" stroke="#F9A825" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="512" cy="310" r="28" fill="#F9A825"/>
+
+    <!-- 眼睛 -->
+    <circle cx="410" cy="540" r="32" fill="#5D4037"/>
+    <circle cx="614" cy="540" r="32" fill="#5D4037"/>
+    <!-- 眼睛高光 -->
+    <circle cx="420" cy="530" r="12" fill="white"/>
+    <circle cx="624" cy="530" r="12" fill="white"/>
+
+    <!-- 嘴巴 -->
+    <path d="M450 640 Q512 700 574 640" fill="none" stroke="#5D4037" stroke-width="20" stroke-linecap="round"/>
+
+    <!-- 腮红 -->
+    <ellipse cx="340" cy="600" rx="50" ry="30" fill="#FFAB91" opacity="0.6"/>
+    <ellipse cx="684" cy="600" rx="50" ry="30" fill="#FFAB91" opacity="0.6"/>
+
+    <!-- ¥ 符号 -->
+    <text x="512" y="490" text-anchor="middle" font-size="120" font-weight="bold" fill="#F9A825" font-family="sans-serif">&#165;</text>
+
+    <!-- 底部文字 -->
+    <text x="512" y="900" text-anchor="middle" font-size="80" font-weight="bold" fill="white" font-family="sans-serif" letter-spacing="8">记账本</text>
+  </g>
+</svg>
