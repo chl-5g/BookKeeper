@@ -48,18 +48,26 @@ DEFAULT_CATEGORIES = [
     # 支出
     ("餐饮", "expense", "🍜"), ("交通", "expense", "🚗"), ("购物", "expense", "🛒"),
     ("娱乐", "expense", "🎮"), ("居住", "expense", "🏠"), ("医疗", "expense", "💊"),
-    ("教育", "expense", "📚"), ("通讯", "expense", "📱"), ("投资", "expense", "📊"), ("其他", "expense", "📦"),
+    ("教育", "expense", "📚"), ("通讯", "expense", "📱"), ("投资", "expense", "📊"),
+    ("人情", "expense", "🎐"), ("美容", "expense", "💇"),
+    ("其他", "expense", "📦"),
     # 收入
     ("工资", "income", "💰"), ("理财", "income", "📈"), ("红包", "income", "🧧"),
-    ("报销", "income", "🧾"), ("其他收入", "income", "💵"),
+    ("报销", "income", "🧾"), ("兼职", "income", "💼"), ("奖金", "income", "🏆"),
+    ("退款", "income", "↩️"), ("租金收入", "income", "🏘️"), ("生意", "income", "🏪"),
+    ("补贴", "income", "🎁"),
 ]
 
 
 def init_db():
     Base.metadata.create_all(engine)
     db = SessionLocal()
-    if db.query(Category).count() == 0:
-        for name, type_, icon in DEFAULT_CATEGORIES:
+    existing = {c.name for c in db.query(Category).all()}
+    added = 0
+    for name, type_, icon in DEFAULT_CATEGORIES:
+        if name not in existing:
             db.add(Category(name=name, type=type_, icon=icon))
+            added += 1
+    if added:
         db.commit()
     db.close()

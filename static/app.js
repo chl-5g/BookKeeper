@@ -60,7 +60,7 @@ createApp({
         });
 
         const filteredCategories = computed(() =>
-            categories.value.filter(c => c.type === form.value.type)
+            categories.value.filter(c => c.type === form.value.type || c.name === '其他')
         );
 
         const canSubmit = computed(() =>
@@ -178,19 +178,21 @@ createApp({
             await loadAll();
         }
 
-        async function aiClassify() {
+        let _classifyTimer = null;
+        function aiClassify() {
+            clearTimeout(_classifyTimer);
             const note = form.value.note.trim();
-            if (!note) return;
-            aiHint.value = '';
-            try {
-                const res = await api('POST', '/api/ai/classify', { note });
-                if (res.category && res.category !== '其他') {
-                    aiHint.value = res.category;
-                    if (!form.value.category) {
-                        form.value.category = res.category;
+            if (!note || note.length < 2) { aiHint.value = ''; return; }
+            _classifyTimer = setTimeout(async () => {
+                try {
+                    const res = await api('POST', '/api/ai/classify', { note });
+                    if (res.category && res.category !== '其他') {
+                        aiHint.value = res.category;
+                    } else {
+                        aiHint.value = '';
                     }
-                }
-            } catch (e) { /* ignore */ }
+                } catch (e) { /* ignore */ }
+            }, 600);
         }
 
         async function doClassify() {

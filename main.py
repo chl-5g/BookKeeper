@@ -291,8 +291,8 @@ def get_categories():
     cats = db.query(Category).all()
     result = [{"id": c.id, "name": c.name, "type": c.type, "icon": c.icon} for c in cats]
     db.close()
-    # "其他"/"其他收入"排到同类型最后
-    result.sort(key=lambda c: (c["type"], c["name"] in ("其他", "其他收入"), c["id"]))
+    # "其他"排到最后
+    result.sort(key=lambda c: (c["type"], c["name"] == "其他", c["id"]))
     return result
 
 

@@ -9,8 +9,8 @@ from collections import defaultdict
 import httpx
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "qwen3:14b"
-MODEL_LIGHT = "bookkeeper-qwen3-4b"  # 微调小模型，用于报告和画像
+MODEL = "qwen3:4b"
+MODEL_FALLBACK = "qwen3:14b"  # 格式不合格时 fallback
 TIMEOUT = 120
 
 # 简易内存缓存：key → (result, timestamp)
@@ -30,26 +30,29 @@ def _cache_get(key: str) -> str | None:
 def _cache_set(key: str, value: str):
     _cache[key] = (value, datetime.now().timestamp())
 
-ALL_CATEGORIES = "餐饮、交通、购物、娱乐、居住、医疗、教育、通讯、投资、工资、理财、红包、报销、其他收入、其他"
+ALL_CATEGORIES = "餐饮、交通、购物、娱乐、居住、医疗、教育、通讯、投资、人情、美容、工资、理财、红包、报销、兼职、奖金、退款、租金收入、生意、补贴、其他"
 ALL_CATS_LIST = ALL_CATEGORIES.split("、")
 
 
 async def _call_llm(prompt: str, temperature=0.7, max_tokens=2000,
                     model: str | None = None) -> str:
-    """调用 ollama，返回清理后的文本。model 默认用 MODEL（14b）"""
+    """调用 ollama，返回清理后的文本"""
     use_model = model or MODEL
-    # 微调小模型不需要 /no_think，14b 需要
-    content = prompt if use_model == MODEL_LIGHT else prompt + " /no_think"
+    # qwen3 会先输出 thinking 再输出 content，需要额外 token 余量
+    total_predict = max_tokens + 1500
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
         resp = await client.post(OLLAMA_URL, json={
             "model": use_model,
-            "messages": [{"role": "user", "content": content}],
+            "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "options": {"temperature": temperature, "num_predict": max_tokens},
+            "options": {"temperature": temperature, "num_predict": total_predict},
         })
         resp.raise_for_status()
-        raw = resp.json()["message"]["content"]
-        return re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        msg = resp.json()["message"]
+        raw = msg.get("content", "") or ""
+        # 清理 <think> 标签（兼容旧格式）
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+        return raw
 
 
 # ============================================================
@@ -101,6 +104,14 @@ _KEYWORD_MAP = {
         "股票", "基金", "理财产品", "定期", "存款", "证券", "债券",
         "期货", "黄金", "比特币", "加密",
     ],
+    "人情": [
+        "份子钱", "随礼", "请客", "送礼", "礼金", "红白事", "婚礼",
+        "满月", "乔迁", "聚餐", "人情", "礼物", "生日礼",
+    ],
+    "美容": [
+        "理发", "美发", "染发", "烫发", "护肤", "美甲", "美容",
+        "化妆", "面膜", "spa", "按摩",
+    ],
     "工资": [
         "工资", "薪水", "月薪", "发工资", "薪资",
     ],
@@ -113,8 +124,23 @@ _KEYWORD_MAP = {
     "报销": [
         "报销", "差旅", "出差",
     ],
-    "其他收入": [
-        "兼职", "副业", "稿费", "奖金", "退款", "返现", "补贴", "津贴",
+    "兼职": [
+        "兼职", "副业", "稿费", "外包", "接单", "私活",
+    ],
+    "奖金": [
+        "奖金", "年终奖", "绩效", "提成", "激励",
+    ],
+    "退款": [
+        "退款", "返现", "退货", "赔付",
+    ],
+    "租金收入": [
+        "房租收入", "租金收入", "出租", "租客", "房东",
+    ],
+    "生意": [
+        "营业", "进账", "货款", "客户付款", "店铺", "摆摊", "卖货",
+    ],
+    "补贴": [
+        "补贴", "津贴", "补助", "福利",
     ],
 }
 
@@ -171,10 +197,10 @@ async def generate_report(month, income_total, expense_total,
         return cached
 
     try:
-        result = await _call_llm(prompt, max_tokens=800, model=MODEL_LIGHT)
+        result = await _call_llm(prompt, max_tokens=800)
         # 格式降级：输出缺 ### 时 fallback 到 14b
         if result.count("###") < 3:
-            result = await _call_llm(prompt, max_tokens=800, model=MODEL)
+            result = await _call_llm(prompt, max_tokens=800, model=MODEL_FALLBACK)
         _cache_set(cache_key, result)
         return result
     except Exception as e:
@@ -185,9 +211,10 @@ async def generate_report(month, income_total, expense_total,
 # 3. 智能记账（纯规则 — 正则解析）
 # ============================================================
 
-_INCOME_KEYWORDS = ["工资", "薪水", "收入", "到账", "奖金", "红包", "转入",
-                     "退款", "返现", "报销", "兼职", "稿费", "利息", "分红",
-                     "补贴", "津贴"]
+_INCOME_KEYWORDS = ["工资", "薪水", "收入", "到账", "奖金", "年终奖", "绩效",
+                     "红包", "转入", "退款", "返现", "报销", "兼职", "副业",
+                     "稿费", "利息", "分红", "补贴", "津贴", "提成", "外包",
+                     "租金收入", "出租", "营业", "进账", "货款", "赔付"]
 
 _DATE_PATTERNS = {
     "今天": 0, "今日": 0,
@@ -247,8 +274,6 @@ async def smart_parse(text: str) -> dict:
 
     # 分类
     category = await classify(note)
-    if record_type == "income" and category == "其他":
-        category = "其他收入"
 
     return {
         "type": record_type,
@@ -380,6 +405,14 @@ _QUERY_CAT_MAP = {
     "通讯": "通讯", "话费": "通讯", "流量": "通讯",
     "投资": "投资", "理财": "理财", "红包": "红包", "报销": "报销",
     "工资": "工资", "薪水": "工资",
+    "兼职": "兼职", "副业": "兼职", "稿费": "兼职",
+    "奖金": "奖金", "年终奖": "奖金", "绩效": "奖金",
+    "退款": "退款", "返现": "退款",
+    "租金": "租金收入", "出租": "租金收入",
+    "生意": "生意", "营业": "生意", "货款": "生意",
+    "补贴": "补贴", "津贴": "补贴",
+    "人情": "人情", "份子钱": "人情", "随礼": "人情", "请客": "人情", "送礼": "人情",
+    "美容": "美容", "理发": "美容", "美甲": "美容", "护肤": "美容",
 }
 
 
@@ -561,10 +594,10 @@ async def spending_profile(months_data: list[dict]) -> str:
         return cached
 
     try:
-        result = await _call_llm(prompt, max_tokens=800, model=MODEL_LIGHT)
+        result = await _call_llm(prompt, max_tokens=800)
         # 格式降级：输出缺 ### 时 fallback 到 14b
         if result.count("###") < 3:
-            result = await _call_llm(prompt, max_tokens=800, model=MODEL)
+            result = await _call_llm(prompt, max_tokens=800, model=MODEL_FALLBACK)
         _cache_set(cache_key, result)
         return result
     except Exception as e:
