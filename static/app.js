@@ -16,6 +16,8 @@ createApp({
         const trendData = ref([]);
         const aiHint = ref('');
         const importResult = ref(null);
+        const reportText = ref('');
+        const reportLoading = ref(false);
 
         const now = new Date();
         const currentMonth = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
@@ -175,6 +177,38 @@ createApp({
             currentMonth.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         }
 
+        // AI Report
+        async function generateReport() {
+            reportLoading.value = true;
+            reportText.value = '';
+            try {
+                const res = await api('GET', `/api/ai/report?month=${currentMonth.value}`);
+                reportText.value = res.report || '报告生成失败';
+            } catch (e) {
+                reportText.value = '网络错误，请稍后重试';
+            } finally {
+                reportLoading.value = false;
+            }
+        }
+
+        function renderMarkdown(text) {
+            // 简易 Markdown → HTML
+            return text
+                .replace(/### (.+)/g, '<h4 style="color:#667eea;margin:12px 0 6px;">$1</h4>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // Clear all records
+        async function clearAllRecords() {
+            if (!confirm('确定要清空所有收支记录吗？此操作不可撤销！')) return;
+            if (!confirm('再次确认：删除后无法恢复，确定清空？')) return;
+            try {
+                await api('DELETE', '/api/records/all');
+                await loadAll();
+            } catch (e) { /* ignore */ }
+        }
+
         // Charts
         const RED_SHADES = ['#f44336', '#e53935', '#d32f2f', '#c62828', '#b71c1c', '#ff5252', '#ff1744', '#ef5350', '#e57373', '#ef9a9a'];
         const GREEN_SHADES = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20', '#66BB6A', '#81C784', '#A5D6A7', '#69F0AE', '#00E676'];
@@ -255,9 +289,10 @@ createApp({
         return {
             user, authMode, authForm, authError, submitAuth, doLogout,
             tab, records, categories, stats, trendData, form, aiHint, importResult,
+            reportText, reportLoading, generateReport, renderMarkdown,
             currentMonth, pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
-            changeMonth, switchTab,
+            changeMonth, switchTab, clearAllRecords,
         };
     }
 }).mount('#app');

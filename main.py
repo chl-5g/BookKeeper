@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 
 from models import SessionLocal, User, Record, Category, init_db
-from ai import classify
+from ai import classify, generate_report
 from bill_parser import parse_alipay_csv, parse_wechat_csv, parse_excel
 
 SECRET_KEY = "bookkeeper-secret-key-2026"
@@ -195,6 +195,18 @@ def create_record(request: Request, data: RecordCreate):
     return result
 
 
+@app.delete("/api/records/all")
+def delete_all_records(request: Request):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    count = db.query(Record).filter(Record.user_id == user.id).delete()
+    db.commit()
+    db.close()
+    return {"ok": True, "deleted": count}
+
+
 @app.delete("/api/records/{record_id}")
 def delete_record(request: Request, record_id: int):
     user = require_user(request)
@@ -288,6 +300,49 @@ async def ai_classify(request: Request, data: ClassifyRequest):
         return JSONResponse({"error": "未登录"}, 401)
     category = await classify(data.note)
     return {"category": category}
+
+
+@app.get("/api/ai/report")
+async def ai_report(request: Request, month: str = Query(...)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    # 获取月度统计
+    rows = (
+        db.query(Record.type, Record.category, func.sum(Record.amount))
+        .filter(Record.user_id == user.id, Record.date.like(f"{month}%"))
+        .group_by(Record.type, Record.category)
+        .all()
+    )
+    record_count = db.query(Record).filter(
+        Record.user_id == user.id, Record.date.like(f"{month}%")
+    ).count()
+    db.close()
+
+    income_total = 0.0
+    expense_total = 0.0
+    income_cats = []
+    expense_cats = []
+    for type_, cat, total in rows:
+        entry = {"category": cat, "amount": round(total, 2)}
+        if type_ == "income":
+            income_total += total
+            income_cats.append(entry)
+        else:
+            expense_total += total
+            expense_cats.append(entry)
+
+    if record_count == 0:
+        return {"report": "本月暂无交易记录，无法生成报告。"}
+
+    report = await generate_report(
+        month, round(income_total, 2), round(expense_total, 2),
+        sorted(income_cats, key=lambda x: -x["amount"]),
+        sorted(expense_cats, key=lambda x: -x["amount"]),
+        record_count,
+    )
+    return {"report": report, "month": month}
 
 
 @app.post("/api/import")
