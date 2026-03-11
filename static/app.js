@@ -32,6 +32,9 @@ createApp({
         const chatQuestion = ref('');
         const chatAnswer = ref('');
         const chatLoading = ref(false);
+        const classifyText = ref('');
+        const classifyResult = ref('');
+        const classifyLoading = ref(false);
 
         // 分页
         const currentPage = ref(1);
@@ -184,6 +187,17 @@ createApp({
                     }
                 }
             } catch (e) { /* ignore */ }
+        }
+
+        async function doClassify() {
+            const text = classifyText.value.trim();
+            if (!text) return;
+            classifyLoading.value = true; classifyResult.value = '';
+            try {
+                const res = await api('POST', '/api/ai/classify', { note: text });
+                classifyResult.value = res.category || '无法识别';
+            } catch (e) { classifyResult.value = '识别失败'; }
+            finally { classifyLoading.value = false; }
         }
 
         async function importCSV(event) {
@@ -387,6 +401,7 @@ createApp({
             setBudget, getBudgetAdvice,
             smartText, smartResult, smartError, smartLoading, smartAdd, confirmSmartAdd,
             chatQuestion, chatAnswer, chatLoading, askChat,
+            classifyText, classifyResult, classifyLoading, doClassify,
             currentMonth, currentPage, totalPages, pagedRecords,
             pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,

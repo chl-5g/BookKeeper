@@ -48,7 +48,7 @@ DEFAULT_CATEGORIES = [
     # 支出
     ("餐饮", "expense", "🍜"), ("交通", "expense", "🚗"), ("购物", "expense", "🛒"),
     ("娱乐", "expense", "🎮"), ("居住", "expense", "🏠"), ("医疗", "expense", "💊"),
-    ("教育", "expense", "📚"), ("通讯", "expense", "📱"), ("其他", "expense", "📦"),
+    ("教育", "expense", "📚"), ("通讯", "expense", "📱"), ("投资", "expense", "📊"), ("其他", "expense", "📦"),
     # 收入
     ("工资", "income", "💰"), ("理财", "income", "📈"), ("红包", "income", "🧧"),
     ("报销", "income", "🧾"), ("其他收入", "income", "💵"),

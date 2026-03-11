@@ -10,7 +10,7 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:14b"
 TIMEOUT = 120
 
-ALL_CATEGORIES = "餐饮、交通、购物、娱乐、居住、医疗、教育、通讯、工资、理财、红包、报销、其他收入、其他"
+ALL_CATEGORIES = "餐饮、交通、购物、娱乐、居住、医疗、教育、通讯、投资、工资、理财、红包、报销、其他收入、其他"
 ALL_CATS_LIST = ALL_CATEGORIES.split("、")
 
 
@@ -150,8 +150,13 @@ def detect_anomalies(current_cats: list[dict], history_cats: list[dict],
         if amounts:
             avg = sum(amounts) / len(amounts)
             threshold = max(avg * 5, 500)  # 至少 500 才报
+            seen_large = set()
             for r in records:
                 if r["type"] == "expense" and r["amount"] >= threshold:
+                    key = (r["date"], r["category"], r["amount"])
+                    if key in seen_large:
+                        continue
+                    seen_large.add(key)
                     alerts.append({
                         "type": "large",
                         "message": f"大额支出：{r['date']} {r['category']}「{r.get('note','')}」{r['amount']:.2f}元（均值{avg:.0f}元的{r['amount']/avg:.1f}倍）"
@@ -175,7 +180,14 @@ def detect_anomalies(current_cats: list[dict], history_cats: list[dict],
                         "message": f"「{cat}」本月{amt:.0f}元，比月均{hist_avg:.0f}元高{(amt/hist_avg-1)*100:.0f}%"
                     })
 
-    return alerts[:5]  # 最多5条
+    # 去重（相同 message 只保留一条）
+    seen = set()
+    unique = []
+    for a in alerts:
+        if a["message"] not in seen:
+            seen.add(a["message"])
+            unique.append(a)
+    return unique[:5]  # 最多5条
 
 
 # ============================================================

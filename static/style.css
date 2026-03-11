@@ -183,6 +183,19 @@ body {
     background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--text);
 }
 .month-selector .month-text { font-size: 1rem; font-weight: 500; }
+.month-selector .month-picker {
+    font-size: 1rem;
+    font-weight: 500;
+    border: none;
+    background: none;
+    color: var(--text);
+    text-align: center;
+    cursor: pointer;
+    outline: none;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.month-selector .month-picker:hover { background: rgba(0,0,0,0.05); }
 
 /* Bottom nav */
 .bottom-nav {
