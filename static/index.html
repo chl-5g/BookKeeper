@@ -155,6 +155,10 @@
                 <div class="section-title">支出分类</div>
                 <div id="pie-chart" class="chart-container"></div>
             </div>
+            <div class="card" v-if="stats.income_categories && stats.income_categories.length">
+                <div class="section-title">收入分类</div>
+                <div id="income-pie-chart" class="chart-container"></div>
+            </div>
             <div class="card">
                 <div class="section-title">收支趋势</div>
                 <div id="trend-chart" class="chart-container"></div>

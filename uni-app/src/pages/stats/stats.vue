@@ -17,7 +17,7 @@
         <canvas canvas-id="pieChart" id="pieChart" class="pie-canvas" @click="onPieTap"></canvas>
         <view class="legend">
           <view v-for="(item, i) in expenseCategories" :key="i" class="legend-item">
-            <view class="legend-dot" :style="{ background: pieColors[i % pieColors.length] }"></view>
+            <view class="legend-dot" :style="{ background: redShades[i % redShades.length] }"></view>
             <text class="legend-name">{{ item.category }}</text>
             <text class="legend-amount">{{ item.amount }}</text>
             <text class="legend-pct">{{ ((item.amount / expenseTotal) * 100).toFixed(1) }}%</text>
@@ -31,7 +31,7 @@
       <text class="chart-title">收入分类</text>
       <view class="legend">
         <view v-for="(item, i) in incomeCategories" :key="i" class="legend-item">
-          <view class="legend-dot" :style="{ background: '#4CAF50' }"></view>
+          <view class="legend-dot" :style="{ background: greenShades[i % greenShades.length] }"></view>
           <text class="legend-name">{{ item.category }}</text>
           <text class="legend-amount">+{{ item.amount }}</text>
         </view>
@@ -62,7 +62,8 @@
 <script>
 import { get } from '../../utils/api.js'
 
-const PIE_COLORS = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140', '#a18cd1', '#fbc2eb', '#84fab0']
+const RED_SHADES = ['#f44336', '#e53935', '#d32f2f', '#c62828', '#b71c1c', '#ff5252', '#ff1744', '#ef5350', '#e57373', '#ef9a9a']
+const GREEN_SHADES = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20', '#66BB6A', '#81C784', '#A5D6A7', '#69F0AE', '#00E676']
 
 export default {
   data() {
@@ -73,7 +74,8 @@ export default {
       incomeCategories: [],
       expenseTotal: 0,
       trendData: [],
-      pieColors: PIE_COLORS,
+      redShades: RED_SHADES,
+      greenShades: GREEN_SHADES,
     }
   },
   onShow() {
@@ -117,7 +119,7 @@ export default {
         ctx.moveTo(cx, cy)
         ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle)
         ctx.closePath()
-        ctx.setFillStyle(PIE_COLORS[i % PIE_COLORS.length])
+        ctx.setFillStyle(RED_SHADES[i % RED_SHADES.length])
         ctx.fill()
         startAngle += sliceAngle
       })

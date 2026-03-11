@@ -176,15 +176,40 @@ createApp({
         }
 
         // Charts
+        const RED_SHADES = ['#f44336', '#e53935', '#d32f2f', '#c62828', '#b71c1c', '#ff5252', '#ff1744', '#ef5350', '#e57373', '#ef9a9a'];
+        const GREEN_SHADES = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20', '#66BB6A', '#81C784', '#A5D6A7', '#69F0AE', '#00E676'];
         let pieChart = null;
+        let incomePieChart = null;
         let trendChart = null;
 
         function renderPieChart() {
             const el = document.getElementById('pie-chart');
             if (!el) return;
             if (!pieChart) pieChart = echarts.init(el);
-            const data = stats.value.expense_categories.map(c => ({ name: c.category, value: c.amount }));
+            const data = stats.value.expense_categories.map((c, i) => ({
+                name: c.category, value: c.amount,
+                itemStyle: { color: RED_SHADES[i % RED_SHADES.length] }
+            }));
             pieChart.setOption({
+                tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
+                series: [{
+                    type: 'pie',
+                    radius: ['35%', '65%'],
+                    label: { formatter: '{b}\n¥{c}', fontSize: 11 },
+                    data: data.length ? data : [{ name: '暂无数据', value: 0 }],
+                }],
+            });
+        }
+
+        function renderIncomePieChart() {
+            const el = document.getElementById('income-pie-chart');
+            if (!el) return;
+            if (!incomePieChart) incomePieChart = echarts.init(el);
+            const data = stats.value.income_categories.map((c, i) => ({
+                name: c.category, value: c.amount,
+                itemStyle: { color: GREEN_SHADES[i % GREEN_SHADES.length] }
+            }));
+            incomePieChart.setOption({
                 tooltip: { trigger: 'item', formatter: '{b}: ¥{c} ({d}%)' },
                 series: [{
                     type: 'pie',
@@ -216,13 +241,13 @@ createApp({
         function switchTab(t) {
             tab.value = t;
             if (t === 'stats') {
-                nextTick(() => { renderPieChart(); renderTrendChart(); });
+                nextTick(() => { renderPieChart(); renderIncomePieChart(); renderTrendChart(); });
             }
         }
 
         // Watchers
-        watch(currentMonth, () => { loadAll().then(() => { if (tab.value === 'stats') nextTick(() => { renderPieChart(); renderTrendChart(); }); }); });
-        watch(() => stats.value, () => { if (tab.value === 'stats') nextTick(renderPieChart); }, { deep: true });
+        watch(currentMonth, () => { loadAll().then(() => { if (tab.value === 'stats') nextTick(() => { renderPieChart(); renderIncomePieChart(); renderTrendChart(); }); }); });
+        watch(() => stats.value, () => { if (tab.value === 'stats') nextTick(() => { renderPieChart(); renderIncomePieChart(); }); }, { deep: true });
         watch(() => trendData.value, () => { if (tab.value === 'stats') nextTick(renderTrendChart); }, { deep: true });
 
         onMounted(() => { checkAuth(); });
