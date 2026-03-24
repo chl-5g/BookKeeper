@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>智小账-AI记账助手</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -102,7 +103,10 @@
             <div class="card">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                     <span>最近记录</span>
-                    <button style="background:none;border:1px solid #f44336;color:#f44336;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;" @click="clearAllRecords">清空全部</button>
+                    <span style="display:flex;gap:6px;">
+                        <button style="background:none;border:1px solid #667eea;color:#667eea;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;" @click="exportCSV">导出CSV</button>
+                        <button style="background:none;border:1px solid #f44336;color:#f44336;padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;" @click="clearAllRecords">清空全部</button>
+                    </span>
                 </div>
                 <div v-if="records.length === 0" class="empty">暂无记录</div>
                 <div v-for="r in pagedRecords" :key="r.id" class="record-item">
@@ -239,19 +243,34 @@
 
         <!-- AI 记账助手 -->
         <div class="page" :class="{active: tab === 'ai'}">
+            <div class="card">
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>AI 助手开关</span>
+                    <label class="switch" :class="{disabled: !aiAssistantEnabled}">
+                        <input type="checkbox" v-model="aiAssistantSwitch" :disabled="!aiAssistantEnabled">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="report-placeholder" v-if="!aiAssistantEnabled || !aiAssistantSwitch">
+                    当前上线版本已关闭大模型能力，相关代码已保留。后续只需在配置中打开即可恢复。
+                </div>
+            </div>
             <!-- AI 财务报告 -->
             <div class="card">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                     <span>AI 财务报告</span>
-                    <button class="ai-report-btn" @click="generateReport" :disabled="reportLoading">
-                        {{ reportLoading ? '生成中...' : '生成报告' }}
-                    </button>
+                    <span style="display:flex;gap:6px;">
+                        <button class="ai-export-btn" v-if="reportText && !reportLoading" @click="exportPDF('report')">导出PDF</button>
+                        <button class="ai-report-btn" @click="generateReport" :disabled="reportLoading">
+                            {{ reportLoading ? '生成中...' : '生成报告' }}
+                        </button>
+                    </span>
                 </div>
                 <div v-if="reportLoading" class="report-loading">
                     <div class="loading-spinner"></div>
                     <span>AI 正在分析您的收支数据...</span>
                 </div>
-                <div v-if="reportText && !reportLoading" class="report-content" v-html="renderMarkdown(reportText)"></div>
+                <div v-if="reportText && !reportLoading" ref="reportContent" class="report-content" v-html="renderMarkdown(reportText)"></div>
                 <div v-if="!reportText && !reportLoading" class="report-placeholder">
                     点击「生成报告」，AI 将分析本月收支数据，提供消费分析和理财建议
                 </div>
@@ -260,15 +279,18 @@
             <div class="card">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
                     <span>消费习惯画像</span>
-                    <button class="ai-report-btn" @click="generateProfile" :disabled="profileLoading">
-                        {{ profileLoading ? '分析中...' : '生成画像' }}
-                    </button>
+                    <span style="display:flex;gap:6px;">
+                        <button class="ai-export-btn" v-if="profileText && !profileLoading" @click="exportPDF('profile')">导出PDF</button>
+                        <button class="ai-report-btn" @click="generateProfile" :disabled="profileLoading">
+                            {{ profileLoading ? '分析中...' : '生成画像' }}
+                        </button>
+                    </span>
                 </div>
                 <div v-if="profileLoading" class="report-loading">
                     <div class="loading-spinner"></div>
                     <span>AI 正在分析您的消费习惯...</span>
                 </div>
-                <div v-if="profileText && !profileLoading" class="report-content" v-html="renderMarkdown(profileText)"></div>
+                <div v-if="profileText && !profileLoading" ref="profileContent" class="report-content" v-html="renderMarkdown(profileText)"></div>
                 <div v-if="!profileText && !profileLoading" class="report-placeholder">
                     分析多月消费数据，生成您的专属消费画像
                 </div>
@@ -302,7 +324,8 @@
 
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/echarts@5/dist/echarts.min.js"></script>
-<script src="/static/dialog.js"></script>
-<script src="/static/app.js"></script>
+<script src="config.js"></script>
+<script src="dialog.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

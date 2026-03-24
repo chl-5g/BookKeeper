@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bookkeeper-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: BK_ENABLE_AI_ASSISTANT
+        value: "0"
+      - key: BK_RATE_LIMIT
+        value: "1"

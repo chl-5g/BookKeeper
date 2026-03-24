@@ -8,7 +8,7 @@ import jwt
 from fastapi import FastAPI, Query, UploadFile, File, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from itsdangerous import URLSafeSerializer
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -16,6 +16,12 @@ from sqlalchemy import func
 SSE_MEDIA_TYPE = "text/event-stream"
 
 from models import SessionLocal, User, Record, Category, Budget, init_db
+
+
+def _latest_record_id(db, user_id: int) -> int:
+    """返回用户最新记录 ID，用于缓存失效"""
+    row = db.query(func.max(Record.id)).filter(Record.user_id == user_id).scalar()
+    return row or 0
 from ai import (classify, generate_report, stream_report, smart_parse,
                 detect_anomalies, budget_advice, chat_query,
                 spending_profile, stream_profile)
@@ -93,8 +99,15 @@ def require_user(request: Request):
 
 # --- AI 限流：每用户每分钟 1 次 ---
 AI_RATE_LIMIT_ENABLED = os.environ.get("BK_RATE_LIMIT", "1") == "1"  # 0=关闭(测试), 1=开启(生产)
+AI_ASSISTANT_ENABLED = os.environ.get("BK_ENABLE_AI_ASSISTANT", "0") == "1"
 _ai_rate: dict[int, float] = {}  # user_id → last_call_timestamp
 _AI_RATE_LIMIT = 60  # 秒
+
+
+def check_ai_assistant_switch():
+    if AI_ASSISTANT_ENABLED:
+        return None
+    return JSONResponse({"error": "AI 助手功能当前已关闭（上线默认关闭）"}, 503)
 
 
 def check_ai_rate(user_id: int) -> str | None:
@@ -139,8 +152,10 @@ class ClassifyRequest(BaseModel):
 
 @app.post("/api/register")
 def register(data: AuthRequest, response: Response):
-    if len(data.username) < 2 or len(data.password) < 4:
-        return JSONResponse({"error": "用户名至少2位，密码至少4位"}, 400)
+    if len(data.username) < 2:
+        return JSONResponse({"error": "用户名至少2位"}, 400)
+    if len(data.password) < 6:
+        return JSONResponse({"error": "密码至少6位"}, 400)
     db = SessionLocal()
     if db.query(User).filter(User.username == data.username).first():
         db.close()
@@ -338,6 +353,9 @@ async def ai_report(request: Request, month: str = Query(...)):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    disabled = check_ai_assistant_switch()
+    if disabled:
+        return disabled
     msg = check_ai_rate(user.id)
     if msg:
         return JSONResponse({"error": msg}, 429)
@@ -352,6 +370,7 @@ async def ai_report(request: Request, month: str = Query(...)):
     record_count = db.query(Record).filter(
         Record.user_id == user.id, Record.date.like(f"{month}%")
     ).count()
+    dv = _latest_record_id(db, user.id)
     db.close()
 
     income_total = 0.0
@@ -374,7 +393,7 @@ async def ai_report(request: Request, month: str = Query(...)):
         month, round(income_total, 2), round(expense_total, 2),
         sorted(income_cats, key=lambda x: -x["amount"]),
         sorted(expense_cats, key=lambda x: -x["amount"]),
-        record_count,
+        record_count, data_version=dv,
     )
     return {"report": report, "month": month}
 
@@ -384,6 +403,9 @@ async def ai_report_stream(request: Request, month: str = Query(...)):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    disabled = check_ai_assistant_switch()
+    if disabled:
+        return disabled
     msg = check_ai_rate(user.id)
     if msg:
         return JSONResponse({"error": msg}, 429)
@@ -397,6 +419,7 @@ async def ai_report_stream(request: Request, month: str = Query(...)):
     record_count = db.query(Record).filter(
         Record.user_id == user.id, Record.date.like(f"{month}%")
     ).count()
+    dv = _latest_record_id(db, user.id)
     db.close()
 
     income_total = expense_total = 0.0
@@ -419,7 +442,7 @@ async def ai_report_stream(request: Request, month: str = Query(...)):
             month, round(income_total, 2), round(expense_total, 2),
             sorted(income_cats, key=lambda x: -x["amount"]),
             sorted(expense_cats, key=lambda x: -x["amount"]),
-            record_count,
+            record_count, data_version=dv,
         ):
             yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -740,6 +763,9 @@ async def ai_profile(request: Request):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    disabled = check_ai_assistant_switch()
+    if disabled:
+        return disabled
     msg = check_ai_rate(user.id)
     if msg:
         return JSONResponse({"error": msg}, 429)
@@ -751,6 +777,7 @@ async def ai_profile(request: Request):
         .filter(Record.user_id == user.id)
         .group_by("month", Record.type, Record.category)
         .all())
+    dv = _latest_record_id(db, user.id)
     db.close()
 
     if not rows:
@@ -770,7 +797,7 @@ async def ai_profile(request: Request):
     for m in months_data:
         m["expense_cats"].sort(key=lambda x: -x["amount"])
 
-    profile = await spending_profile(months_data)
+    profile = await spending_profile(months_data, data_version=dv)
     return {"profile": profile}
 
 
@@ -779,6 +806,9 @@ async def ai_profile_stream(request: Request):
     user = require_user(request)
     if not user:
         return JSONResponse({"error": "未登录"}, 401)
+    disabled = check_ai_assistant_switch()
+    if disabled:
+        return disabled
     msg = check_ai_rate(user.id)
     if msg:
         return JSONResponse({"error": msg}, 429)
@@ -789,6 +819,7 @@ async def ai_profile_stream(request: Request):
         .filter(Record.user_id == user.id)
         .group_by("month", Record.type, Record.category)
         .all())
+    dv = _latest_record_id(db, user.id)
     db.close()
 
     if not rows:
@@ -811,7 +842,7 @@ async def ai_profile_stream(request: Request):
         m["expense_cats"].sort(key=lambda x: -x["amount"])
 
     async def gen():
-        async for token in stream_profile(months_data):
+        async for token in stream_profile(months_data, data_version=dv):
             yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
@@ -880,6 +911,38 @@ async def import_csv(request: Request, file: UploadFile = File(...)):
     return {"ok": True, "source": source, "imported": imported, "skipped": skipped, "ai_classified": ai_classified}
 
 
+# --- 数据导出 CSV ---
+
+@app.get("/api/export/csv")
+def export_csv(request: Request, month: str = Query(None)):
+    user = require_user(request)
+    if not user:
+        return JSONResponse({"error": "未登录"}, 401)
+    db = SessionLocal()
+    q = db.query(Record).filter(Record.user_id == user.id).order_by(Record.date.desc(), Record.id.desc())
+    if month:
+        q = q.filter(Record.date.like(f"{month}%"))
+    records = q.all()
+    db.close()
+
+    import io
+    import csv
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["日期", "类型", "分类", "金额", "备注"])
+    for r in records:
+        writer.writerow([r.date, "收入" if r.type == "income" else "支出",
+                         r.category, f"{r.amount:.2f}", r.note or ""])
+
+    content = buf.getvalue().encode("utf-8-sig")  # BOM for Excel compatibility
+    filename = f"记账数据_{month or '全部'}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
 # --- WeChat login stub ---
 
 class WxLoginRequest(BaseModel):
@@ -894,7 +957,31 @@ async def wx_login(data: WxLoginRequest):
 
 # --- Static files ---
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+@app.get("/config.js")
+def config_js():
+    enabled = "true" if AI_ASSISTANT_ENABLED else "false"
+    js = f'window.__BK_API_BASE__ = "";\nwindow.__BK_ENABLE_AI_ASSISTANT__ = {enabled};\n'
+    return Response(content=js, media_type="application/javascript; charset=utf-8")
+
+
+@app.get("/app.js")
+def app_js():
+    return FileResponse("static/app.js")
+
+
+@app.get("/dialog.js")
+def dialog_js():
+    return FileResponse("static/dialog.js")
+
+
+@app.get("/style.css")
+def style_css():
+    return FileResponse("static/style.css")
+
+
+@app.get("/favicon.svg")
+def favicon():
+    return FileResponse("static/favicon.svg")
 
 
 @app.get("/")

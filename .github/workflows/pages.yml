@@ -1,0 +1,67 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build static site
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          cp -R static/* dist/
+
+          API_BASE="${{ vars.BK_API_BASE }}"
+          if [ -z "$API_BASE" ]; then
+            API_BASE="${{ secrets.BK_API_BASE }}"
+          fi
+
+          AI_SWITCH="${{ vars.BK_ENABLE_AI_ASSISTANT }}"
+          if [ "$AI_SWITCH" = "1" ] || [ "$AI_SWITCH" = "true" ] || [ "$AI_SWITCH" = "TRUE" ]; then
+            AI_ENABLED=true
+          else
+            AI_ENABLED=false
+          fi
+
+          cat > dist/config.js <<EOF
+          window.__BK_API_BASE__ = "${API_BASE}";
+          window.__BK_ENABLE_AI_ASSISTANT__ = ${AI_ENABLED};
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

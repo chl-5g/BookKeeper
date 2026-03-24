@@ -215,3 +215,26 @@ npm run build:h5        # H5 构建
 ## License
 
 MIT
+
+
+## GitHub Pages + Render 上线
+
+### 1) 后端部署到 Render
+
+1. 在 Render 里用 Blueprint 导入本仓库（`render.yaml`）。
+2. 部署完成后拿到后端地址，例如 `https://bookkeeper-api.onrender.com`。
+3. 默认 `BK_ENABLE_AI_ASSISTANT=0`，上线阶段不会调用大模型。
+
+### 2) 前端发布到 GitHub Pages
+
+1. 打开仓库 Settings -> Pages，Source 选择 **GitHub Actions**。
+2. 在仓库 Variables 或 Environment `github-pages` 中配置：
+   - `BK_API_BASE`：Render 后端地址（不要末尾 `/`）
+   - `BK_ENABLE_AI_ASSISTANT`：默认填 `0`
+3. 触发 `Deploy GitHub Pages` 工作流。
+
+### 3) AI 开关策略
+
+- 页面第 4 个功能栏（AI 记账助手）增加了 switch 开关。
+- 后端也有总开关 `BK_ENABLE_AI_ASSISTANT`，即使前端被篡改，关闭时也不会调用大模型。
+- 需要放开时，把 Render 和 Pages 的 `BK_ENABLE_AI_ASSISTANT` 改为 `1` 并重新部署即可。

@@ -39,6 +39,13 @@ const app = createApp({
         const classifyText = ref('');
         const classifyResult = ref('');
         const classifyLoading = ref(false);
+        const reportContent = ref(null);
+        const profileContent = ref(null);
+        const aiAssistantEnabled = ref(Boolean(window.__BK_ENABLE_AI_ASSISTANT__));
+        const aiAssistantSwitch = ref(Boolean(window.__BK_ENABLE_AI_ASSISTANT__));
+
+        const apiBase = (window.__BK_API_BASE__ || '').trim().replace(/\/+$/, '');
+        const tokenKey = 'bk_token';
 
         // 分页
         const currentPage = ref(1);
@@ -78,17 +85,29 @@ const app = createApp({
         }
 
         // API helpers
+        function apiUrl(path) {
+            const normalized = path.startsWith('/') ? path : `/${path}`;
+            return apiBase ? `${apiBase}${normalized}` : normalized;
+        }
+
+        function authHeaders(extra = {}) {
+            const token = localStorage.getItem(tokenKey) || '';
+            return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+        }
+
         async function api(method, path, body) {
-            const opts = { method, headers: { 'Content-Type': 'application/json' } };
+            const opts = { method, headers: authHeaders({ 'Content-Type': 'application/json' }) };
             if (body) opts.body = JSON.stringify(body);
-            const res = await fetch(path, opts);
-            return res.json();
+            const res = await fetch(apiUrl(path), opts);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || '请求失败');
+            return data;
         }
 
         // Auth
         async function checkAuth() {
             try {
-                const res = await fetch('/api/user');
+                const res = await fetch(apiUrl('/api/user'), { headers: authHeaders() });
                 if (res.ok) {
                     const data = await res.json();
                     user.value = data.username;
@@ -102,15 +121,16 @@ const app = createApp({
             authError.value = '';
             const url = authMode.value === 'login' ? '/api/login' : '/api/register';
             try {
-                const res = await fetch(url, {
+                const res = await fetch(apiUrl(url), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify(authForm.value),
                 });
                 const data = await res.json();
                 if (data.error) {
                     authError.value = data.error;
                 } else {
+                    if (data.token) localStorage.setItem(tokenKey, data.token);
                     user.value = data.username;
                     authForm.value = { username: '', password: '' };
                     await loadCategories();
@@ -123,6 +143,7 @@ const app = createApp({
 
         async function doLogout() {
             await api('POST', '/api/logout');
+            localStorage.removeItem(tokenKey);
             user.value = null;
             records.value = [];
             stats.value = { income_total: 0, expense_total: 0, income_categories: [], expense_categories: [] };
@@ -213,7 +234,7 @@ const app = createApp({
             const formData = new FormData();
             formData.append('file', file);
             try {
-                const res = await fetch('/api/import', { method: 'POST', body: formData });
+                const res = await fetch(apiUrl('/api/import'), { method: 'POST', body: formData, headers: authHeaders() });
                 importResult.value = await res.json();
                 if (!importResult.value.error) {
                     await loadAll();
@@ -238,7 +259,7 @@ const app = createApp({
             loadingRef.value = true;
             textRef.value = '';
             try {
-                const res = await fetch(url);
+                const res = await fetch(apiUrl(url), { headers: authHeaders() });
                 if (!res.ok) {
                     const err = await res.json().catch(() => null);
                     textRef.value = err?.error || '生成失败，请重试';
@@ -265,6 +286,10 @@ const app = createApp({
         }
 
         function generateReport() {
+            if (!aiAssistantEnabled.value || !aiAssistantSwitch.value) {
+                reportText.value = 'AI 助手已关闭，当前上线版本不调用大模型。';
+                return Promise.resolve();
+            }
             return readSSEStream(`/api/ai/report/stream?month=${currentMonth.value}`, reportText, reportLoading);
         }
 
@@ -276,7 +301,28 @@ const app = createApp({
         }
 
         function generateProfile() {
+            if (!aiAssistantEnabled.value || !aiAssistantSwitch.value) {
+                profileText.value = 'AI 助手已关闭，当前上线版本不调用大模型。';
+                return Promise.resolve();
+            }
             return readSSEStream('/api/ai/profile/stream', profileText, profileLoading);
+        }
+
+        function exportPDF(type) {
+            const el = type === 'report' ? reportContent.value : profileContent.value;
+            if (!el) return;
+            const today = new Date();
+            const dateStr = type === 'report'
+                ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+                : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const filename = type === 'report' ? `AI财务报告_${dateStr}.pdf` : `消费习惯画像_${dateStr}.pdf`;
+            html2pdf().set({
+                margin: [12, 10, 12, 10],
+                filename: filename,
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+            }).from(el).save();
         }
 
         // 智能记账
@@ -346,6 +392,10 @@ const app = createApp({
                 await api('DELETE', '/api/records/all');
                 await loadAll();
             } catch (e) { /* ignore */ }
+        }
+
+        function exportCSV() {
+            window.open(apiUrl(`/api/export/csv?month=${currentMonth.value}`), '_blank');
         }
 
         // Charts
@@ -439,10 +489,12 @@ const app = createApp({
             smartText, smartResult, smartError, smartLoading, smartAdd, confirmSmartAdd,
             chatQuestion, chatAnswer, chatLoading, askChat,
             classifyText, classifyResult, classifyLoading, doClassify,
+            aiAssistantEnabled, aiAssistantSwitch,
+            reportContent, profileContent, exportPDF,
             currentMonth, currentPage, totalPages, pagedRecords,
             pageTitle, filteredCategories, canSubmit,
             getCatIcon, submitRecord, deleteRecord, aiClassify, importCSV,
-            changeMonth, switchTab, clearAllRecords, pickFile,
+            changeMonth, switchTab, clearAllRecords, pickFile, exportCSV,
         };
     }
 });
