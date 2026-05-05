@@ -1,6 +1,6 @@
 # BookKeeper 智小账-AI记账助手
 
-个人智能记账应用，支持手动记账、自然语言智能记账、支付宝/微信账单导入、AI 财务报告、消费画像分析等。后端纯 Python，AI 功能基于本地 ollama 推理，数据完全私有。
+个人智能记账应用，支持手动记账、自然语言智能记账、支付宝/微信账单导入、AI 财务报告、消费画像分析等。后端纯 Python，AI 功能基于云 API（DeepSeek/OpenAI/Anthropic 等通用接口，`.env` 配置即切），数据完全私有。
 
 ## 功能概览
 
@@ -16,14 +16,14 @@
 | AI 财务报告 | 基于月度收支数据生成分析报告和理财建议（流式输出） | **是** |
 | 消费习惯画像 | 分析多月消费数据，生成消费标签和优化建议（流式输出） | **是** |
 
-> **LLM 使用原则**：只有 AI 财务报告和消费习惯画像调用 LLM（qwen3:4b），其他功能全部纯规则实现，零延迟。
+> **LLM 使用原则**：只有 AI 财务报告和消费习惯画像调用 LLM，其他功能全部纯规则实现，零延迟。AI 助手默认关闭，通过 `BK_ENABLE_AI_ASSISTANT=1` 开启。
 
 ## 技术栈
 
 - **后端**：Python 3.12 + FastAPI + SQLite + SQLAlchemy
 - **Web 前端**：Vue 3（CDN）+ ECharts
 - **uni-app 前端**：Vue 3 + Vite（支持微信小程序 / App / H5 三端）
-- **AI 推理**：ollama + qwen3:4b（本地 GPU）
+- **AI 接口**：通用 LLM API（OpenAI 兼容格式，自动检测 Anthropic Messages API），DeepSeek v4-flash 默认
 - **认证**：Cookie Session（Web）+ JWT Bearer Token（小程序/App）
 - **部署**：systemd 服务，端口 8080
 
@@ -35,6 +35,8 @@
 ├── models.py            # SQLAlchemy 模型（User, Record, Category, Budget）
 ├── ai.py                # AI 模块（关键词分类、LLM 报告/画像、智能记账、问答）
 ├── bill_parser.py       # 支付宝/微信/Excel 账单解析器
+├── .env                 # 环境配置（API Key、模型、开关）
+├── .env.example         # 配置模板
 ├── data/
 │   └── bookkeeper.db    # SQLite 数据库
 ├── static/
@@ -71,13 +73,39 @@ SQLite，文件路径：`data/bookkeeper.db`
 ### 环境要求
 
 - Python 3.12+
-- ollama（运行 qwen3:4b 模型，需 GPU）
+- 一个 LLM API Key（DeepSeek/OpenAI/Anthropic 等任选）
 
 ### 安装依赖
 
 ```bash
-pip install fastapi uvicorn sqlalchemy httpx python-multipart bcrypt itsdangerous pyjwt
+pip install fastapi uvicorn[standard] sqlalchemy httpx python-multipart bcrypt itsdangerous pyjwt
 ```
+
+### 配置
+
+```bash
+cd /opt/bookkeeper
+cp .env.example .env
+# 编辑 .env，填入你的 API Key 和模型
+```
+
+`.env` 示例（DeepSeek）：
+```env
+API_KEY=sk-your-key-here
+API_BASE_URL=https://api.deepseek.com
+MODEL=deepseek-v4-flash
+BK_ENABLE_AI_ASSISTANT=1
+```
+
+支持的 provider（改 `.env` 即切）：
+
+| Provider | API_BASE_URL | MODEL 示例 |
+|----------|-------------|-----------|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` / `deepseek-v4-pro` |
+| OpenAI | `https://api.openai.com` | `gpt-4o` |
+| Anthropic | `https://api.anthropic.com` | `claude-sonnet-4-6` |
+| 硅基流动 | `https://api.siliconflow.cn` | `deepseek-ai/DeepSeek-V3` |
+| Groq | `https://api.groq.com` | `llama-4-maverick-128k` |
 
 ### 启动服务
 
@@ -93,7 +121,7 @@ python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
 # /etc/systemd/system/bookkeeper.service
 [Unit]
 Description=BookKeeper
-After=network.target ollama.service
+After=network.target
 
 [Service]
 Type=simple
@@ -189,7 +217,6 @@ systemctl enable --now bookkeeper.service
 ## 性能优化
 
 - **流式输出**：AI 报告和画像使用 SSE 流式推送，思考阶段显示 loading，正文逐字显示
-- **ollama 并行**：`OLLAMA_NUM_PARALLEL=3`，支持多用户同时推理
 - **结果缓存**：LLM 生成结果缓存 1 小时（同月同数据不重复调用）
 - **限流保护**：AI 接口每用户每分钟 1 次
 
@@ -223,7 +250,8 @@ MIT
 
 1. 在 Render 里用 Blueprint 导入本仓库（`render.yaml`）。
 2. 部署完成后拿到后端地址，例如 `https://bookkeeper-api.onrender.com`。
-3. 默认 `BK_ENABLE_AI_ASSISTANT=0`，上线阶段不会调用大模型。
+3. 在 Render 环境变量中设置 `API_KEY`、`API_BASE_URL`、`MODEL`。
+4. 默认 `BK_ENABLE_AI_ASSISTANT=0`，上线阶段不会调用大模型。
 
 ### 2) 前端发布到 GitHub Pages
 

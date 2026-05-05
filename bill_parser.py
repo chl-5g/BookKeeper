@@ -60,8 +60,6 @@ def _parse_records(reader, get_direction, get_amount_str, get_time_str, get_note
         note, counterpart = get_note_counterpart(row)
         is_income = direction in ("收入", "收")
         category = guess_category(note, counterpart)
-        if is_income and category == "其他":
-            category = "其他收入"
 
         records.append({
             "type": "income" if is_income else "expense",

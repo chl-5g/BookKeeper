@@ -2,6 +2,20 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
+
+# .env 加载
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    with open(_env_file) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if key not in os.environ:
+                os.environ[key] = val
 
 import bcrypt
 import jwt
