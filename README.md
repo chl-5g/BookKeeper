@@ -31,10 +31,11 @@
 
 ```
 /opt/bookkeeper/
-├── main.py              # FastAPI 主入口，路由 & 中间件
-├── models.py            # SQLAlchemy 模型（User, Record, Category, Budget）
-├── ai.py                # AI 模块（关键词分类、LLM 报告/画像、智能记账、问答）
-├── bill_parser.py       # 支付宝/微信/Excel 账单解析器
+├── app/
+│   ├── main.py          # FastAPI 主入口，路由 & 中间件
+│   ├── models.py        # SQLAlchemy 模型（User, Record, Category, Budget）
+│   ├── ai.py            # AI 模块（关键词分类、LLM 报告/画像、智能记账、问答）
+│   └── bill_parser.py   # 支付宝/微信/Excel 账单解析器
 ├── .env                 # 环境配置（API Key、模型、开关）
 ├── .env.example         # 配置模板
 ├── data/
@@ -119,7 +120,7 @@ BK_ENABLE_AI_ASSISTANT=1
 
 ```bash
 cd /opt/bookkeeper
-python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 # 访问 http://localhost:8080
 ```
 
@@ -134,7 +135,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/bookkeeper
-ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
+ExecStart=/usr/bin/python3 -m app.main
 Restart=always
 
 [Install]

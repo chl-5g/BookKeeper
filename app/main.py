@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # .env 加载
-_env_file = Path(__file__).parent / ".env"
+_env_file = Path(__file__).parent.parent / ".env"
 if _env_file.exists():
     with open(_env_file) as f:
         for line in f:
