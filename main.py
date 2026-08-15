@@ -29,17 +29,17 @@ from sqlalchemy import func
 
 SSE_MEDIA_TYPE = "text/event-stream"
 
-from models import SessionLocal, User, Record, Category, Budget, init_db
+from app.models import SessionLocal, User, Record, Category, Budget, init_db
 
 
 def _latest_record_id(db, user_id: int) -> int:
     """返回用户最新记录 ID，用于缓存失效"""
     row = db.query(func.max(Record.id)).filter(Record.user_id == user_id).scalar()
     return row or 0
-from ai import (classify, generate_report, stream_report, smart_parse,
-                detect_anomalies, budget_advice, chat_query,
-                spending_profile, stream_profile)
-from bill_parser import parse_alipay_csv, parse_wechat_csv, parse_excel
+from app.ai import (classify, generate_report, stream_report, smart_parse,
+                    detect_anomalies, budget_advice, chat_query,
+                    spending_profile, stream_profile)
+from app.bill_parser import parse_alipay_csv, parse_wechat_csv, parse_excel
 
 SECRET_KEY = "bookkeeper-secret-key-2026"
 COOKIE_NAME = "session"
