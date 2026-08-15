@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-用 qwen3:14b 批量生成 BookKeeper 微调训练数据
+用 qwen3.8:27b 批量生成 BookKeeper 微调训练数据
 300 条月度报告 + 200 条消费画像 = 500 条 ChatML JSONL
 支持断点续传（追加写入）
 """

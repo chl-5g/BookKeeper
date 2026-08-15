@@ -53,7 +53,7 @@
       </view>
       <view class="ai-text-wrap">
         <text class="ai-title">AI 智能助手</text>
-        <text class="ai-desc">qwen3:14b 大模型驱动：自动分类、智能记账、收支报告、异常预警、预算管家、账单问答、消费画像，7 大 AI 功能助你理财。</text>
+        <text class="ai-desc">qwen3.8:27b 大模型驱动：自动分类、智能记账、收支报告、异常预警、预算管家、账单问答、消费画像，7 大 AI 功能助你理财。</text>
       </view>
       <text class="ai-close">x</text>
     </view>

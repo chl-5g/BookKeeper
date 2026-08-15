@@ -42,7 +42,7 @@ data:
 
 ollama:
   url: http://localhost:11434
-  teacher_model: "qwen3:14b"
+  teacher_model: "qwen3.8:27b"
   timeout: 120
 
 export:
