@@ -1,6 +1,6 @@
 # BookKeeper 智小账-AI记账助手
 
-个人智能记账应用，支持手动记账、自然语言智能记账、支付宝/微信账单导入、AI 财务报告、消费画像分析等。后端纯 Python，AI 功能基于云 API（DeepSeek/OpenAI/Anthropic 等通用接口，`.env` 配置即切），数据完全私有。
+个人智能记账应用，支持手动记账、自然语言智能记账、支付宝/微信账单导入、AI 财务报告、消费画像分析等。后端纯 Python，AI 功能基于通用 LLM API（OpenAI 兼容格式），支持云 API（DeepSeek/OpenAI/Anthropic）或本地 ollama（qwen3.8:27b），`.env` 配置即切，数据完全私有。
 
 ## 功能概览
 
@@ -23,7 +23,7 @@
 - **后端**：Python 3.12 + FastAPI + SQLite + SQLAlchemy
 - **Web 前端**：Vue 3（CDN）+ ECharts
 - **uni-app 前端**：Vue 3 + Vite（支持微信小程序 / App / H5 三端）
-- **AI 接口**：通用 LLM API（OpenAI 兼容格式，自动检测 Anthropic Messages API），DeepSeek v4-flash 默认
+- **AI 接口**：通用 LLM API（OpenAI 兼容格式，自动检测 Anthropic Messages API），默认 `deepseek-v4-flash`；本机部署用 ollama `qwen3.8:27b`
 - **认证**：Cookie Session（Web）+ JWT Bearer Token（小程序/App）
 - **部署**：systemd 服务，端口 8080
 
@@ -73,7 +73,7 @@ SQLite，文件路径：`data/bookkeeper.db`
 ### 环境要求
 
 - Python 3.12+
-- 一个 LLM API Key（DeepSeek/OpenAI/Anthropic 等任选）
+- LLM 接入（二选一）：云 API Key（DeepSeek/OpenAI/Anthropic 任选）或本地 ollama（`ollama pull qwen3.8:27b`，无需 Key）
 
 ### 安装依赖
 
@@ -97,10 +97,18 @@ MODEL=deepseek-v4-flash
 BK_ENABLE_AI_ASSISTANT=1
 ```
 
+`.env` 示例（本地 ollama，无需 API Key）：
+```env
+API_BASE_URL=http://localhost:11434/v1
+MODEL=qwen3.8:27b
+BK_ENABLE_AI_ASSISTANT=1
+```
+
 支持的 provider（改 `.env` 即切）：
 
 | Provider | API_BASE_URL | MODEL 示例 |
 |----------|-------------|-----------|
+| ollama（本地） | `http://localhost:11434/v1` | `qwen3.8:27b` |
 | DeepSeek | `https://api.deepseek.com` | `deepseek-v4-flash` / `deepseek-v4-pro` |
 | OpenAI | `https://api.openai.com` | `gpt-4o` |
 | Anthropic | `https://api.anthropic.com` | `claude-sonnet-4-6` |

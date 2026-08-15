@@ -31,14 +31,14 @@ def _load_dotenv():
 _load_dotenv()
 
 # 通用配置：任何 provider 只改 .env 即可
-# DeepSeek 示例:  API_KEY=sk-xxx  API_BASE_URL=https://api.deepseek.com  MODEL=deepseek-chat
+# DeepSeek 示例:  API_KEY=sk-xxx  API_BASE_URL=https://api.deepseek.com  MODEL=deepseek-v4-flash
 # OpenAI 示例:   API_KEY=sk-xxx  API_BASE_URL=https://api.openai.com  MODEL=gpt-4o
 # Anthropic 示例: API_KEY=sk-ant-xxx  API_BASE_URL=https://api.anthropic.com  MODEL=claude-sonnet-4-6
 # 硅基流动示例:  API_KEY=sk-xxx  API_BASE_URL=https://api.siliconflow.cn  MODEL=deepseek-ai/DeepSeek-V3
 
 API_KEY = os.environ.get("API_KEY", "")
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.deepseek.com")
-MODEL = os.environ.get("MODEL", "deepseek-chat")
+MODEL = os.environ.get("MODEL", "deepseek-v4-flash")
 TIMEOUT = 120
 SYSTEM_PROMPT = "你是一个专业、简洁的助手。请直接回答问题，不要使用表格。"
 
