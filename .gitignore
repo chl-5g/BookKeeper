@@ -3,3 +3,4 @@ data/
 *.pyc
 .env
 .claude/
+.scannerwork/
